@@ -739,7 +739,11 @@ final class FrameProcessor: @unchecked Sendable {
     /// doesn't shift; `amount` is the grain's standard deviation in 0–1 units at mid-tones.
     func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.006) -> CIImage {
         let tile = Self.grainTile
-        let tiled = tile.applyingFilter("CIAffineTile", parameters: [kCIInputTransformKey: NSValue(affineTransform: .identity)])
+        let tiler = CIFilter.affineTile()
+        tiler.inputImage = tile
+        tiler.transform = CGAffineTransform.identity
+        guard let tiledAll = tiler.outputImage else { return image }
+        let tiled = tiledAll
             .transformed(by: CGAffineTransform(translationX: CGFloat(Int.random(in: 0..<256)), y: CGFloat(Int.random(in: 0..<256))))
             .cropped(to: extent)
         // The tile holds 0.5 ± noise with σ = 1/16; scale it to the requested amount around 0.5.

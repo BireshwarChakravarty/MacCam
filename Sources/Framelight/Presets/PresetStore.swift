@@ -82,25 +82,28 @@ final class PresetStore: ObservableObject {
         }
         return [
             make("Natural") { _ in },
-            make("Warm & Cozy") { s in
-                s.warmth = 28; s.vibrance = 0.15; s.shadows = 0.15; s.contrast = 0.97
+            make("Bright & Clean") { s in
+                s.look = .daylight
             },
-            make("Cool Studio") { s in
-                s.warmth = -18; s.contrast = 1.08; s.saturation = 0.95; s.sharpen = 0.2
+            make("Warm Evening") { s in
+                s.look = .warmRoom; s.warmth = 12
             },
-            make("Streamer Pop") { s in
-                s.vibrance = 0.35; s.contrast = 1.1; s.shadows = 0.2; s.sharpen = 0.25; s.vignette = 0.25
-                s.autoFraming = true; s.framingSubject = .upperBody
+            make("Soft Film") { s in
+                s.look = .softFilm; s.vignette = 0.25
             },
-            make("Cinematic") { s in
-                s.look = .cinematic; s.vignette = 0.35; s.backgroundMode = .blur; s.backgroundBlur = 0.5
-            },
-            make("Low-Light Rescue") { s in
-                s.exposure = 0.5; s.shadows = 0.45; s.highlights = 0.85; s.denoise = 0.6; s.vibrance = 0.1
+            make("Streamer") { s in
+                s.look = .studioCrisp; s.autoFraming = true; s.framingSubject = .upperBody
+                s.backgroundMode = .studioLight; s.backgroundStrength = 0.5; s.sharpen = 0.2
             },
             make("Meeting Focus") { s in
                 s.autoFraming = true; s.framingSubject = .face; s.framingTightness = 0.35
-                s.backgroundMode = .blur; s.backgroundBlur = 0.7
+                s.backgroundMode = .blur; s.backgroundStrength = 0.55
+            },
+            make("Low Light") { s in
+                s.denoise = 0.75; s.shadows = 0.3; s.look = .natural
+            },
+            make("Moody Stream") { s in
+                s.look = .moody; s.backgroundMode = .studioLight; s.backgroundStrength = 0.7; s.vignette = 0.3
             },
         ]
     }()

@@ -24,7 +24,8 @@ final class FrameStore: @unchecked Sendable {
 final class AppModel: ObservableObject {
     let camera = CameraManager()
     let processor = FrameProcessor()
-    let frames = FrameStore()
+    let frames = FrameStore()      // what the window shows (may include the compare split)
+    let outputs = FrameStore()     // the real processed output
     let recorder = Recorder()
     let virtualCamera = VirtualCameraSink()
     let installer = ExtensionInstaller()
@@ -41,6 +42,7 @@ final class AppModel: ObservableObject {
     }
 
     @Published var histogram: [[Float]] = []
+    @Published var lookThumbnails: [LookStyle: NSImage] = [:]
     @Published var stats: FrameProcessor.FrameStats?
     @Published var showHistogram = true
     @Published var showGrid = false
@@ -75,18 +77,23 @@ final class AppModel: ObservableObject {
     }
 
     private func wirePipeline() {
-        let processor = processor, frames = frames, recorder = recorder, virtualCamera = virtualCamera
+        let processor = processor, frames = frames, outputs = outputs, recorder = recorder, virtualCamera = virtualCamera
         camera.sampleHandler = { sample in processor.process(sample) }
         processor.onFrame = { buffer, time in
-            frames.put(buffer)
+            outputs.put(buffer)
             recorder.append(buffer, time: time)
         }
+        processor.onPreview = { buffer in frames.put(buffer) }
         processor.onVirtualCameraFrame = { buffer, _ in virtualCamera.send(buffer) }
         processor.onHistogram = { [weak self] h in
             DispatchQueue.main.async { self?.histogram = h }
         }
         processor.onStats = { [weak self] s in
             DispatchQueue.main.async { self?.stats = s }
+        }
+        processor.onLookThumbnails = { [weak self] thumbs in
+            let images = thumbs.mapValues { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+            DispatchQueue.main.async { self?.lookThumbnails = images }
         }
     }
 
@@ -176,8 +183,11 @@ final class AppModel: ObservableObject {
     func resetSoftware() {
         var s = ProcessingSettings()
         s.outputResolution = settings.outputResolution
+        s.autoFraming = settings.autoFraming
         settings = s
     }
+
+    func toggleCompare() { settings.compare.toggle() }
 
     private func saveSettings() {
         if let data = try? JSONEncoder().encode(settings) {
@@ -220,7 +230,7 @@ final class AppModel: ObservableObject {
 
     /// Saves the current processed frame as a full-quality PNG.
     func snapshot() {
-        guard let buffer = frames.latest, let cg = processor.cgImage(from: buffer) else {
+        guard let buffer = outputs.latest, let cg = processor.cgImage(from: buffer) else {
             flash("No frame to capture yet")
             return
         }

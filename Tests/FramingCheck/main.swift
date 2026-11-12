@@ -1,6 +1,6 @@
 // Simulates auto framing with realistic detections from a 4K webcam at desk distance.
-//   swiftc -swift-version 5 Sources/Framelight/Processing/AutoFramer.swift \
-//     Sources/Framelight/Processing/ProcessingSettings.swift Tests/FramingCheck/main.swift -o framingcheck && ./framingcheck
+//   swiftc -swift-version 5 Sources/Framelight/Processing/{AutoFramer,ProcessingSettings,GradeEngine,ColorMath}.swift \
+//     Tests/FramingCheck/main.swift -o framingcheck && ./framingcheck
 import Foundation
 
 var failures = 0

@@ -30,6 +30,25 @@ struct HardwarePanel: View {
                 }
 
                 Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Label("Natural Baseline", systemImage: "leaf")
+                                .font(.headline)
+                            Spacer()
+                            Button("Apply") {
+                                let changed = controls.applyNaturalBaseline()
+                                model.flash(changed.isEmpty ? "Camera is already at a natural baseline"
+                                                            : "Set \(changed.count) camera settings to a natural baseline")
+                            }
+                        }
+                        Text("Lowers the camera's built-in sharpening (the main cause of crunchy, fake-looking skin), resets colour boosts to neutral, and keeps exposure, white balance and focus on auto. Framelight's own processing then does the rest.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                Section {
                     Toggle("Restore my settings when the camera reconnects", isOn: $model.autoRestoreOnConnect)
                         .help("Most webcams forget their settings when unplugged or when the Mac sleeps. Framelight re-applies them.")
                     HStack {

@@ -276,6 +276,37 @@ final class UVCControlStore: ObservableObject {
         }
     }
 
+    /// Puts the camera's own processing in a neutral state that software can build on.
+    /// Cheap webcams over-sharpen (halos, "crunchy" skin) and push saturation by default; neither can be
+    /// undone later, so they're set at the source. Automatic exposure, white balance and focus stay on.
+    func applyNaturalBaseline() -> [String] {
+        var changed: [String] = []
+        func set(_ id: String, _ value: Int?) {
+            guard let state = states[id], state.canSet, let value, value != state.current else { return }
+            setValue(id, value)
+            changed.append(state.definition.name)
+        }
+        if let ae = states["ct.aeMode"] {
+            let modes = ae.menuOptions.map(\.value)
+            set("ct.aeMode", modes.contains(AEMode.aperturePriority) ? AEMode.aperturePriority
+                : (modes.contains(AEMode.auto) ? AEMode.auto : nil))
+        }
+        set("pu.wbTempAuto", 1)
+        set("ct.focusAuto", 1)
+        if let sharp = states["pu.sharpness"] {
+            // About a third of the camera's default: removes halos, keeps real detail.
+            let base = sharp.defaultValue ?? (sharp.minimum + (sharp.maximum - sharp.minimum) / 2)
+            set("pu.sharpness", sharp.minimum + Int(Double(base - sharp.minimum) * 0.35))
+        }
+        for id in ["pu.saturation", "pu.contrast", "pu.gamma", "pu.hue", "pu.brightness"] {
+            set(id, states[id]?.defaultValue)
+        }
+        if let gain = states["pu.gain"], !isAutoActive(for: gain) {
+            set("pu.gain", gain.defaultValue)
+        }
+        return changed
+    }
+
     func reset(_ id: String) {
         if let def = states[id]?.defaultValue { setValue(id, def) }
     }

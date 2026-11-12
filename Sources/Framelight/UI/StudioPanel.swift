@@ -1,59 +1,118 @@
 import SwiftUI
 
-/// Software features: auto framing, background, colour grading, output.
+/// Software features: look, light & colour, detail, background, framing, output.
 struct StudioPanel: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
         Form {
-            framingSection
-            backgroundSection
-            colorSection
-            detailSection
             lookSection
+            lightSection
+            detailSection
+            backgroundSection
+            framingSection
             outputSection
             virtualCameraSection
 
             Section {
-                Button("Reset Studio Settings") { model.resetSoftware() }
+                HStack {
+                    Button("Reset Studio") { model.resetSoftware() }
+                    Spacer()
+                    Toggle("Compare Before / After", isOn: $model.settings.compare)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
             }
         }
         .formStyle(.grouped)
     }
 
-    // MARK: Framing
+    // MARK: Look
 
-    private var framingSection: some View {
+    private var lookSection: some View {
         Section {
-            Toggle(isOn: $model.settings.autoFraming) {
-                VStack(alignment: .leading) {
-                    Text("Auto Framing")
-                    Text("Keeps you centred, like Center Stage, by cropping the 4K sensor.")
-                        .font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 10) {
+                ForEach(LookStyle.allCases) { look in
+                    LookTile(look: look, image: model.lookThumbnails[look], selected: model.settings.look == look) {
+                        model.settings.look = look
+                    }
                 }
             }
-            if model.settings.autoFraming {
-                Picker("Follow", selection: $model.settings.framingSubject) {
-                    ForEach(FramingSubject.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                TunedSlider("Tightness", value: $model.settings.framingTightness, in: 0...1, reset: 0.5, format: .percent)
-                TunedSlider("Motion Speed", value: $model.settings.framingSpeed, in: 0...1, reset: 0.5, format: .percent)
-                TunedSlider("Max Zoom", value: $model.settings.maxZoom, in: 1...4, reset: 2.5, format: .multiplier)
-            } else {
-                TunedSlider("Digital Zoom", value: $model.settings.digitalZoom, in: 1...4, reset: 1, format: .multiplier)
-                if model.settings.digitalZoom > 1.01 {
-                    TunedSlider("Pan", value: $model.settings.panX, in: -1...1, reset: 0, format: .signed)
-                    TunedSlider("Tilt", value: $model.settings.panY, in: -1...1, reset: 0, format: .signed)
-                }
-            }
-            HStack {
-                Toggle("Mirror", isOn: $model.settings.mirror)
-                Spacer()
-                Toggle("Upside Down", isOn: $model.settings.flipVertical)
-            }
+            .padding(.vertical, 4)
+            TunedSlider("Strength", value: $model.settings.lookIntensity, in: 0...1, reset: 1) { "\(Int(($0 * 100).rounded()))%" }
         } header: {
-            Label("Framing", systemImage: "person.crop.rectangle")
+            Label("Look", systemImage: "camera.filters")
+        } footer: {
+            Text(model.settings.look.summary).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Light & colour
+
+    private var lightSection: some View {
+        Section {
+            Toggle(isOn: $model.settings.autoLight) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto Light")
+                    Text(autoLightStatus).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle(isOn: $model.settings.naturalSkin) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Natural Skin Tones")
+                    Text(skinStatus).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            TunedSlider("Exposure", value: $model.settings.exposure, in: -2...2, reset: 0) { String(format: "%+.1f EV", $0) }
+            TunedSlider("Temperature", value: $model.settings.warmth, in: -100...100, reset: 0) { v in
+                let k = Int((v * 15).rounded())
+                return k == 0 ? "As shot" : (k > 0 ? "+\(k) K warmer" : "\(-k) K cooler")
+            }
+            TunedSlider("Tint", value: $model.settings.tint, in: -100...100, reset: 0) { v in
+                let t = Int(v.rounded())
+                return t == 0 ? "0" : (t > 0 ? "+\(t) magenta" : "\(-t) green")
+            }
+            TunedSlider("Contrast", value: $model.settings.contrast, in: 0.75...1.3, reset: 1) { signedPercent($0 - 1) }
+            TunedSlider("Saturation", value: $model.settings.saturation, in: 0...1.6, reset: 1) { signedPercent($0 - 1) }
+            TunedSlider("Vibrance", value: $model.settings.vibrance, in: -1...1, reset: 0) { signedPercent($0) }
+            TunedSlider("Highlight Recovery", value: Binding(get: { (1 - model.settings.highlights) / 0.6 },
+                                                             set: { model.settings.highlights = 1 - $0 * 0.6 }),
+                        in: 0...1, reset: 0) { "\(Int(($0 * 100).rounded()))%" }
+            TunedSlider("Shadow Lift", value: Binding(get: { model.settings.shadows / 0.8 },
+                                                      set: { model.settings.shadows = $0 * 0.8 }),
+                        in: 0...1, reset: 0) { "\(Int(($0 * 100).rounded()))%" }
+        } header: {
+            Label("Light & Color", systemImage: "sun.max")
+        } footer: {
+            Text("Saturation is held back on skin and hue never shifts, so faces stay true. Double-click a slider's name to reset it.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var autoLightStatus: String {
+        guard model.settings.autoLight else { return "Meters your face and only steps in when it's too dark or too bright." }
+        guard let ev = model.stats?.autoExposure, abs(ev) >= 0.05 else { return "Your face is well exposed. No correction." }
+        return String(format: "Correcting %+.1f EV for your face", ev)
+    }
+
+    private var skinStatus: String {
+        guard model.settings.naturalSkin else { return "Removes green or magenta casts using your skin tone, like a colourist." }
+        return model.stats?.skinCorrection == true ? "Correcting a colour cast from the lighting." : "Skin tones look natural. No correction."
+    }
+
+    // MARK: Detail
+
+    private var detailSection: some View {
+        Section {
+            TunedSlider("Noise Reduction", value: $model.settings.denoise, in: 0...1, reset: 0.35) { "\(Int(($0 * 100).rounded()))%" }
+            TunedSlider("Sharpness", value: $model.settings.sharpen, in: 0...1, reset: 0) { "\(Int(($0 * 100).rounded()))%" }
+            TunedSlider("Vignette", value: $model.settings.vignette, in: 0...1, reset: 0) { "\(Int(($0 * 100).rounded()))%" }
+        } header: {
+            Label("Detail", systemImage: "wand.and.stars")
+        } footer: {
+            Text("Noise reduction averages frames only where nothing moves, so skin keeps its texture instead of looking plastic.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -61,17 +120,31 @@ struct StudioPanel: View {
 
     private var backgroundSection: some View {
         Section {
-            Picker("Background", selection: $model.settings.backgroundMode) {
-                ForEach(BackgroundMode.allCases) { Text($0.rawValue).tag($0) }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
+                ForEach(BackgroundMode.allCases) { mode in
+                    Button {
+                        model.settings.backgroundMode = mode
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: mode.symbol).font(.system(size: 15))
+                            Text(mode.rawValue).font(.caption2).lineLimit(1).minimumScaleFactor(0.8)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .background(model.settings.backgroundMode == mode ? Color.accentColor.opacity(0.18) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(model.settings.backgroundMode == mode ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: 1))
+                }
             }
-            .pickerStyle(.segmented)
+            if model.settings.backgroundMode != .none {
+                TunedSlider("Strength", value: $model.settings.backgroundStrength, in: 0...1, reset: 0.6) { "\(Int(($0 * 100).rounded()))%" }
+            }
             switch model.settings.backgroundMode {
-            case .none:
-                EmptyView()
-            case .blur:
-                TunedSlider("Blur Strength", value: $model.settings.backgroundBlur, in: 0...1, reset: 0.6, format: .percent)
             case .color:
-                ColorPicker("Color", selection: Binding(
+                ColorPicker("Backdrop Color", selection: Binding(
                     get: { Color(nsColor: NSColor(hex: model.settings.backgroundColorHex)) },
                     set: { model.settings.backgroundColorHex = NSColor($0).hexString }), supportsOpacity: false)
             case .image:
@@ -82,53 +155,59 @@ struct StudioPanel: View {
                     Spacer()
                     Button("Choose…") { model.chooseBackgroundImage() }
                 }
+            default:
+                EmptyView()
             }
         } header: {
             Label("Background", systemImage: "person.and.background.dotted")
-        }
-    }
-
-    // MARK: Colour
-
-    private var colorSection: some View {
-        Section {
-            TunedSlider("Warmth", value: $model.settings.warmth, in: -100...100, reset: 0, format: .integer)
-            TunedSlider("Tint", value: $model.settings.tint, in: -100...100, reset: 0, format: .integer)
-            TunedSlider("Exposure", value: $model.settings.exposure, in: -2...2, reset: 0, format: .ev)
-            TunedSlider("Contrast", value: $model.settings.contrast, in: 0.5...1.5, reset: 1, format: .centeredPercent)
-            TunedSlider("Brightness", value: $model.settings.brightness, in: -0.3...0.3, reset: 0, format: .signed)
-            TunedSlider("Highlights", value: $model.settings.highlights, in: 0...1, reset: 1, format: .percent)
-            TunedSlider("Shadows", value: $model.settings.shadows, in: 0...1, reset: 0, format: .percent)
-            TunedSlider("Saturation", value: $model.settings.saturation, in: 0...2, reset: 1, format: .centeredPercent)
-            TunedSlider("Vibrance", value: $model.settings.vibrance, in: -1...1, reset: 0, format: .signed)
-        } header: {
-            Label("Color & Tone", systemImage: "paintpalette")
         } footer: {
-            Text("Applied in software on top of the camera's own settings. Double-click a slider's label to reset it.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(backgroundFooter).font(.caption).foregroundStyle(.secondary)
         }
     }
 
-    private var detailSection: some View {
-        Section {
-            TunedSlider("Sharpen", value: $model.settings.sharpen, in: 0...1, reset: 0, format: .percent)
-            TunedSlider("Noise Reduction", value: $model.settings.denoise, in: 0...1, reset: 0, format: .percent)
-            TunedSlider("Vignette", value: $model.settings.vignette, in: 0...1, reset: 0, format: .percent)
-        } header: {
-            Label("Detail", systemImage: "wand.and.stars")
+    private var backgroundFooter: String {
+        switch model.settings.backgroundMode {
+        case .none: return "Keeps the room exactly as the camera sees it."
+        case .blur: return "Lens-style blur with no halo around you. The blurred area keeps a little grain so it doesn't look pasted on."
+        case .studioLight: return "Lifts you slightly and dims the room, like a key light in a darker space."
+        case .color: return "A softly lit studio backdrop."
+        case .image: return "Your photo, slightly defocused so it sits naturally behind you."
         }
     }
 
-    private var lookSection: some View {
+    // MARK: Framing
+
+    private var framingSection: some View {
         Section {
-            Picker("Look", selection: $model.settings.look) {
-                ForEach(Look.allCases) { Text($0.rawValue).tag($0) }
+            Toggle(isOn: $model.settings.autoFraming) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto Framing")
+                    Text("Follows you smoothly by cropping the 4K sensor, like Center Stage.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
-            if model.settings.look != .none {
-                TunedSlider("Intensity", value: $model.settings.lookIntensity, in: 0...1, reset: 1, format: .percent)
+            if model.settings.autoFraming {
+                Picker("Follow", selection: $model.settings.framingSubject) {
+                    ForEach(FramingSubject.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                TunedSlider("Tightness", value: $model.settings.framingTightness, in: 0...1, reset: 0.5) { "\(Int(($0 * 100).rounded()))%" }
+                TunedSlider("Motion Speed", value: $model.settings.framingSpeed, in: 0...1, reset: 0.5) { "\(Int(($0 * 100).rounded()))%" }
+                TunedSlider("Max Zoom", value: $model.settings.maxZoom, in: 1...4, reset: 2.5) { String(format: "%.1f×", $0) }
+            } else {
+                TunedSlider("Digital Zoom", value: $model.settings.digitalZoom, in: 1...4, reset: 1) { String(format: "%.1f×", $0) }
+                if model.settings.digitalZoom > 1.01 {
+                    TunedSlider("Pan", value: $model.settings.panX, in: -1...1, reset: 0) { String(format: "%+.2f", $0) }
+                    TunedSlider("Tilt", value: $model.settings.panY, in: -1...1, reset: 0) { String(format: "%+.2f", $0) }
+                }
+            }
+            HStack {
+                Toggle("Mirror", isOn: $model.settings.mirror)
+                Spacer()
+                Toggle("Upside Down", isOn: $model.settings.flipVertical)
             }
         } header: {
-            Label("Look", systemImage: "camera.filters")
+            Label("Framing", systemImage: "person.crop.rectangle")
         }
     }
 
@@ -154,7 +233,7 @@ struct StudioPanel: View {
         Section {
             Toggle(isOn: Binding(get: { model.virtualCameraOn && model.virtualCameraStatus != .off },
                                  set: { model.setVirtualCamera($0) })) {
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("Send to Virtual Camera")
                     Text(statusText).font(.caption).foregroundStyle(.secondary)
                 }
@@ -171,7 +250,7 @@ struct StudioPanel: View {
         } header: {
             Label("Virtual Camera", systemImage: "video.badge.waveform")
         } footer: {
-            Text("Pick “\(VirtualCameraConfig.deviceName)” in Zoom, Google Meet, Teams, OBS or FaceTime to get auto framing, background and colour effects there. Keep Framelight running.")
+            Text("Pick “\(VirtualCameraConfig.deviceName)” in Zoom, Google Meet, Teams, OBS or FaceTime to use everything above there. Keep Framelight running.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -184,38 +263,68 @@ struct StudioPanel: View {
         case .failed(let message): return message
         }
     }
+
+    private func signedPercent(_ v: Double) -> String {
+        let p = Int((v * 100).rounded())
+        return p == 0 ? "0%" : String(format: "%+ld%%", p)
+    }
+}
+
+// MARK: - Look tile
+
+private struct LookTile: View {
+    let look: LookStyle
+    let image: NSImage?
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                ZStack {
+                    if let image {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(16 / 9, contentMode: .fill)
+                    } else {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.secondary.opacity(0.15))
+                            .aspectRatio(16 / 9, contentMode: .fit)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .stroke(selected ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: selected ? 2.5 : 1))
+                Text(look.displayName)
+                    .font(.caption2.weight(selected ? .semibold : .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(look.summary)
+        .accessibilityLabel(look.displayName)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
 }
 
 // MARK: - Slider
-
-enum SliderFormat {
-    case percent, centeredPercent, signed, integer, multiplier, ev
-
-    func string(_ v: Double) -> String {
-        switch self {
-        case .percent: return "\(Int((v * 100).rounded()))%"
-        case .centeredPercent: return String(format: "%+ld%%", Int(((v - 1) * 100).rounded()))
-        case .signed: return String(format: "%+.2f", v)
-        case .integer: return String(format: "%+ld", Int(v.rounded()))
-        case .multiplier: return String(format: "%.1f×", v)
-        case .ev: return String(format: "%+.1f EV", v)
-        }
-    }
-}
 
 struct TunedSlider: View {
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
     let reset: Double
-    let format: SliderFormat
+    let display: (Double) -> String
 
-    init(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, reset: Double, format: SliderFormat) {
+    init(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, reset: Double,
+         display: @escaping (Double) -> String) {
         self.title = title
         self._value = value
         self.range = range
         self.reset = reset
-        self.format = format
+        self.display = display
     }
 
     var body: some View {
@@ -223,7 +332,7 @@ struct TunedSlider: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text(format.string(value))
+                Text(display(value))
                     .monospacedDigit()
                     .foregroundStyle(abs(value - reset) < 0.0001 ? .secondary : .primary)
             }

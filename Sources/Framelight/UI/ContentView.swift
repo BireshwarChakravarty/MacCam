@@ -93,6 +93,11 @@ struct ContentView: View {
             .tint(model.isRecording ? .red : nil)
             .help(model.isRecording ? "Stop recording" : "Record video")
 
+            Toggle(isOn: $model.settings.compare) {
+                Label("Compare", systemImage: "rectangle.split.2x1")
+            }
+            .help("Compare before / after (only in this window)")
+
             Button { showInspector.toggle() } label: { Label("Controls", systemImage: "sidebar.right") }
                 .help("Show or hide controls")
         }
@@ -118,6 +123,20 @@ struct ContentView: View {
                 if model.showGrid {
                     GridOverlay(aspect: model.settings.outputResolution.size.width / model.settings.outputResolution.size.height)
                 }
+            }
+
+            if model.settings.compare {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Text("Before").compareTag()
+                        Spacer()
+                        Text("After").compareTag()
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 92)
+                }
+                .allowsHitTesting(false)
             }
 
             VStack {
@@ -206,5 +225,13 @@ struct ContentView: View {
             }
         }
         .foregroundStyle(.secondary)
+    }
+}
+
+private extension Text {
+    func compareTag() -> some View {
+        self.font(.caption.weight(.semibold))
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .glassEffect(.regular, in: Capsule())
     }
 }

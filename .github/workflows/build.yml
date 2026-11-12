@@ -51,5 +51,12 @@ jobs:
 
       - name: Auto framing simulation
         run: |
-          swiftc -swift-version 5 Sources/Framelight/Processing/AutoFramer.swift Sources/Framelight/Processing/ProcessingSettings.swift Tests/FramingCheck/main.swift -o framingcheck
+          swiftc -swift-version 5 Sources/Framelight/Processing/AutoFramer.swift Sources/Framelight/Processing/ProcessingSettings.swift \
+            Sources/Framelight/Processing/GradeEngine.swift Sources/Framelight/Processing/ColorMath.swift Tests/FramingCheck/main.swift -o framingcheck
           ./framingcheck
+
+      - name: Natural colour engine checks
+        run: |
+          swiftc -O -swift-version 5 Sources/Framelight/Processing/ColorMath.swift Sources/Framelight/Processing/GradeEngine.swift \
+            Tests/ColorCheck/main.swift -o colorcheck
+          ./colorcheck

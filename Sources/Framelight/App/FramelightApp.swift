@@ -45,6 +45,8 @@ struct FramelightApp: App {
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 Button("Toggle Mirror") { model.settings.mirror.toggle() }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
+                Button("Compare Before / After") { model.toggleCompare() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
                 Divider()
                 Button("Reload Camera Controls") { Task { await model.reloadControls() } }
             }

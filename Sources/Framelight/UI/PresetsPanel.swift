@@ -105,9 +105,9 @@ private struct PresetRow: View {
         var parts: [String] = []
         if !preset.hardware.isEmpty { parts.append("\(preset.hardware.count) camera settings") }
         if preset.software.autoFraming { parts.append("auto framing") }
-        if preset.software.backgroundMode != .none { parts.append("background \(preset.software.backgroundMode.rawValue.lowercased())") }
-        if preset.software.look != .none { parts.append(preset.software.look.rawValue) }
-        if !preset.software.isColorNeutral && preset.software.look == .none { parts.append("color grade") }
-        return parts.isEmpty ? "Clean, unprocessed" : parts.joined(separator: " · ")
+        if preset.software.backgroundMode != .none { parts.append(preset.software.backgroundMode.rawValue.lowercased()) }
+        parts.insert(preset.software.look.displayName, at: 0)
+        if preset.software.denoise > 0.6 { parts.append("strong noise reduction") }
+        return parts.joined(separator: " · ")
     }
 }

@@ -24,15 +24,27 @@ These settings are applied by the camera itself, so **they work in every app**, 
 * **Settings survive replugging.** Most webcams forget their settings on power loss. Framelight re-applies them when the camera reconnects.
 * Reset any control (or all of them) to the camera's factory default.
 
-### Studio tab: software pipeline (GPU, Core Image + Vision)
-* **Auto Framing ("Center Stage")**: follows your face, upper body, or everyone in view by cropping the 4K sensor. A 4K sensor gives up to 2× zoom into a 1080p output with no quality loss. Tightness, motion speed and max zoom are adjustable, with a dead zone so the shot doesn't wobble. When nobody is in view it eases back out to the wide shot.
-* Manual digital zoom and pan/tilt for cameras without hardware PTZ.
-* **Background**: blur, studio colour, or your own image (Apple Vision person segmentation).
-* **Colour & tone**: warmth/tint, exposure, contrast, brightness, highlights, shadows, saturation, vibrance.
-* **Detail**: sharpen, noise reduction, vignette.
-* **Looks**: Cinematic, Warm Film, Chrome, Fade, Instant, Mono, Noir and more, each with an intensity slider.
-* Mirror / upside-down, output 720p, 1080p, 1440p or 4K.
-* Live RGB histogram, rule-of-thirds grid, photo snapshots (PNG) and video recording (H.264/HEVC).
+### Studio tab: natural processing (GPU, Core Image + Apple Vision)
+Everything here is designed to look like a better camera, not like a filter.
+
+* **Looks** are live thumbnails of your own image: Natural, Bright & Clean, Warm Room, Soft Film, Studio Crisp, Moody and Monochrome, each with a strength slider. They're all one grading model, not stacked effects:
+  * Colour is processed in OKLab, a perceptual colour space, so contrast changes lightness only and saturation never shifts hue.
+  * Highlights roll off like film instead of clipping, and colour fades gently near black and white.
+  * Saturation is held back on skin, using the hue range where all skin tones sit (measured across the Monk Skin Tone scale).
+  * Everything is baked into a single 3D LUT on the GPU.
+* **Auto Light** meters your face. It only steps in when your face falls outside the normal 40–70% video-level band (IRE) for well-exposed skin, so darker and lighter skin both stay true.
+* **Natural Skin Tones** uses the colourist's "skin tone line" to remove green or magenta casts from room lighting, gently and within limits, by adjusting white balance in linear light.
+* **Noise reduction** is motion-adaptive and temporal: it averages frames only where nothing moves, so skin keeps its texture instead of turning plastic.
+* **Background:**
+  * Blur is halo-free: the person is cut out before blurring, the blur uses lens-shaped discs, and matching grain keeps it from looking pasted on.
+  * Studio Light lifts you slightly and dims the room. There are also a softly lit colour backdrop and your own image.
+  * The person matte follows real edges (Apple's edge-preserving upsample) and is smoothed over time so its edge doesn't shimmer.
+* **Auto Framing (Center Stage-style)** builds the shot around your face and moves on critically damped springs, so it's smooth with no jitter.
+* **Compare Before / After** shows a split preview, only in Framelight's own window.
+* Exposure in EV, temperature in Kelvin, tint, contrast, saturation, vibrance, highlight recovery, shadow lift, sharpness and vignette.
+* Mirror or upside-down, output 720p, 1080p, 1440p or 4K, a live histogram, PNG photos and H.264/HEVC recording.
+
+The Camera tab also has a **Natural Baseline** button. It turns down the webcam's own over-sharpening and colour boosts, which software can't undo afterwards.
 
 ### Presets
 Save all hardware and studio settings under a name, apply them in one click, and import or export them as JSON. Starter looks are included.
@@ -108,6 +120,8 @@ USB webcam ──UVC control requests (IOKit)──▶ hardware settings (Camera
 | `Sources/Framelight/UI/` | SwiftUI interface |
 | `CameraExtension/` | Core Media I/O camera extension (virtual camera) |
 | `Tests/ParserCheck/` | Stand-alone checks for descriptor parsing and value encoding |
+| `Tests/FramingCheck/` | Auto framing simulation: zoom, follow, hold still, smoothness |
+| `Tests/ColorCheck/` | Colour engine checks: neutral greys, hue preservation, skin protection, auto light |
 | `Design/AppIcon/` | App icon source (HTML/CSS, rendered to `Resources/AppIcon.icns`) |
 
 ## Troubleshooting

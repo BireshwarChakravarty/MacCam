@@ -93,6 +93,11 @@ struct ContentView: View {
             .tint(model.isRecording ? .red : nil)
             .help(model.isRecording ? "Stop recording" : "Record video")
 
+            Toggle(isOn: Binding(get: { model.settings.privacy }, set: { _ in model.togglePrivacy() })) {
+                Label("Privacy", systemImage: model.settings.privacy ? "eye.slash.fill" : "eye.slash")
+            }
+            .help("Privacy: blur yourself for everyone (⌘⇧H)")
+
             Toggle(isOn: $model.settings.compare) {
                 Label("Compare", systemImage: "rectangle.split.2x1")
             }
@@ -121,8 +126,12 @@ struct ContentView: View {
             } else {
                 PreviewView(frames: model.frames, context: model.processor.ciContext, device: model.processor.metalDevice)
                 if model.showGrid {
-                    GridOverlay(aspect: model.settings.outputResolution.size.width / model.settings.outputResolution.size.height)
+                    GridOverlay(aspect: model.settings.outputSize.width / model.settings.outputSize.height)
                 }
+            }
+
+            if model.pickingWhitePoint {
+                whitePointPicker
             }
 
             if model.settings.compare {
@@ -181,6 +190,34 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: model.toast)
     }
 
+    /// Click-to-neutralise: maps the click to the fitted video rect and sets the white point.
+    private var whitePointPicker: some View {
+        GeometryReader { geo in
+            let aspect = model.settings.outputSize.width / model.settings.outputSize.height
+            let scale = min(geo.size.width / aspect, geo.size.height)
+            let rect = CGRect(x: (geo.size.width - scale * aspect) / 2, y: (geo.size.height - scale) / 2,
+                              width: scale * aspect, height: scale)
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture(coordinateSpace: .local) { location in
+                        guard rect.contains(location) else { return }
+                        model.pickWhitePoint(at: CGPoint(x: (location.x - rect.minX) / rect.width,
+                                                         y: (location.y - rect.minY) / rect.height))
+                    }
+                    .onHover { inside in
+                        if inside { NSCursor.crosshair.push() } else { NSCursor.pop() }
+                    }
+                Label("Click something white or light grey", systemImage: "eyedropper")
+                    .font(.callout.weight(.medium))
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .glassEffect(.regular, in: Capsule())
+                    .padding(.top, 54)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
     /// Live status pills over the video: frame rate, virtual camera, framing.
     private var statusChips: some View {
         GlassEffectContainer(spacing: 8) {
@@ -189,6 +226,11 @@ struct ContentView: View {
                     .monospacedDigit()
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .glassEffect(.regular, in: Capsule())
+                if model.settings.privacy {
+                    Label("Privacy on", systemImage: "eye.slash.fill")
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .glassEffect(.regular.tint(.orange.opacity(0.35)), in: Capsule())
+                }
                 if model.virtualCameraStatus == .streaming {
                     Label("Virtual Cam Live", systemImage: "dot.radiowaves.left.and.right")
                         .padding(.horizontal, 10).padding(.vertical, 6)

@@ -9,6 +9,7 @@ struct FramingDetection {
     var faces: [CGRect]
     var bodies: [CGRect]
     var time: Double
+    var hands: [HandPose] = []
 }
 
 /// Software "Center Stage": turns face/body detections into a smoothly moving crop of the
@@ -73,6 +74,35 @@ final class AutoFramer {
         lastSubjectTime = -.infinity
         lastStepTime = nil
         lastDetectionTime = nil
+    }
+
+    /// Forgets the auto-framing target but keeps the camera "moving" smoothly from where it is.
+    func clearTarget() {
+        desired = nil
+        target = nil
+        lastSubjectTime = -.infinity
+        lastDetectionTime = nil
+    }
+
+    /// Glides to an explicit crop (manual zoom/pan, shot presets) on the same springs.
+    func follow(_ goal: CGRect, source: CGSize, aspect: CGFloat, now: Double, snappy: Bool) -> CGRect {
+        let full = Self.fullCrop(source: source, aspect: aspect)
+        let dt = min(0.25, max(0, now - (lastStepTime ?? (now - 1.0 / 30.0))))
+        lastStepTime = now
+        let aspectChanged = abs(lastAspect - aspect) > 0.001
+        lastAspect = aspect
+        if centerX == nil || height == nil || height!.value > Double(full.height) + 1 || aspectChanged {
+            centerX = Spring(value: Double(goal.midX))
+            centerY = Spring(value: Double(goal.midY))
+            height = Spring(value: Double(goal.height))
+        }
+        let omega = snappy ? 14.0 : 4.5
+        centerX!.step(toward: Double(goal.midX), omega: omega, dt: dt)
+        centerY!.step(toward: Double(goal.midY), omega: omega, dt: dt)
+        height!.step(toward: Double(goal.height), omega: omega * 0.8, dt: dt)
+        let h = min(CGFloat(height!.value), full.height)
+        return Self.clamp(CGRect(x: CGFloat(centerX!.value) - h * aspect / 2, y: CGFloat(centerY!.value) - h / 2,
+                                 width: h * aspect, height: h), to: full)
     }
 
     /// Manual digital zoom / pan when auto framing is off.

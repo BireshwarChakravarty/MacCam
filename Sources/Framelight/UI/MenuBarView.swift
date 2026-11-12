@@ -11,6 +11,7 @@ struct MenuBarView: View {
             get: { model.settings.backgroundMode == .blur },
             set: { model.settings.backgroundMode = $0 ? .blur : .none }))
         Toggle("Mirror", isOn: $model.settings.mirror)
+        Toggle("Privacy", isOn: Binding(get: { model.settings.privacy }, set: { _ in model.togglePrivacy() }))
         Toggle("Virtual Camera", isOn: Binding(
             get: { model.virtualCameraOn && model.virtualCameraStatus != .off },
             set: { model.setVirtualCamera($0) }))
@@ -20,6 +21,11 @@ struct MenuBarView: View {
         Menu("Presets") {
             ForEach(model.presets.presets) { preset in
                 Button(preset.name) { model.apply(preset) }
+            }
+        }
+        Menu("Shots") {
+            ForEach(0..<4, id: \.self) { i in
+                Button(model.shots[i] == nil ? "Shot \(i + 1) (empty)" : "Shot \(i + 1)") { model.recallShot(i) }
             }
         }
         Menu("Camera") {

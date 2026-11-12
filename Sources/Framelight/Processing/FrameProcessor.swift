@@ -79,6 +79,14 @@ final class FrameProcessor: @unchecked Sendable {
     private var lastFaceSeen = -Double.infinity
     private var lastFrameTime: Double?
 
+    // Framing glide, gestures, timing
+    private var lastManualGoal: CGRect?
+    private var glideUntil = 0.0
+    private var gestureTracker = GestureTracker()
+    private var lastGestureDetection = -1.0
+    private var timings: [Double] = []
+    private var nameTagCache: (key: String, image: CIImage)?
+
     // Side work
     private var frameCount = 0
     private let histogramQueue = DispatchQueue(label: "framelight.histogram", qos: .utility)
@@ -98,6 +106,8 @@ final class FrameProcessor: @unchecked Sendable {
     var onStats: ((FrameStats) -> Void)?
     /// Small previews of every look on the live image, about once a second.
     var onLookThumbnails: (([LookStyle: CGImage]) -> Void)?
+    /// A hand gesture was recognised (called on the capture queue).
+    var onGesture: ((HandGesture) -> Void)?
 
     struct FrameStats {
         var sourceSize: CGSize
@@ -107,6 +117,9 @@ final class FrameProcessor: @unchecked Sendable {
         var facesDetected: Int
         var autoExposure: Double
         var skinCorrection: Bool
+        var pipelineMs: Double
+        var pipelineP95Ms: Double
+        var gpuName: String
     }
 
     private let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -144,26 +157,34 @@ final class FrameProcessor: @unchecked Sendable {
             defer { needsFramerReset = false }
             return (_settings, needsFramerReset)
         }
-        if resetFramer { framer.reset() }
+        if resetFramer { framer.clearTarget() }
         frameCount &+= 1
         let dt = min(0.25, max(0, now - (lastFrameTime ?? now - 1.0 / 30.0)))
         lastFrameTime = now
 
         let sourceSize = CGSize(width: CVPixelBufferGetWidth(input), height: CVPixelBufferGetHeight(input))
-        let outSize = s.outputResolution.size
+        let outSize = s.outputSize
         let outRect = CGRect(origin: .zero, size: outSize)
         let aspect = outSize.width / outSize.height
 
-        let needsFaces = s.autoFraming || s.autoLight || s.naturalSkin
-        vision.submit(input, detect: needsFaces, segment: s.backgroundMode != .none)
+        let needsFaces = s.autoFraming || s.autoLight || s.naturalSkin || s.gestureControl
+        vision.submit(input, detect: needsFaces, segment: s.backgroundMode != .none && !s.privacy,
+                      hands: s.gestureControl)
         let detection = needsFaces ? vision.latestDetection : nil
+        if s.gestureControl { handleGestures(detection, now: now) }
 
-        // 1. Framing.
+        // 1. Framing: auto, or a manual/preset shot reached with a smooth glide.
         let crop: CGRect
         if s.autoFraming {
             crop = framer.crop(source: sourceSize, aspect: aspect, settings: s, detection: detection, now: now)
         } else {
-            crop = AutoFramer.manualCrop(source: sourceSize, aspect: aspect, zoom: s.digitalZoom, panX: s.panX, panY: s.panY)
+            let goal = AutoFramer.manualCrop(source: sourceSize, aspect: aspect, zoom: s.digitalZoom, panX: s.panX, panY: s.panY)
+            if let last = lastManualGoal,
+               abs(goal.height - last.height) > last.height * 0.12 || hypot(goal.midX - last.midX, goal.midY - last.midY) > last.height * 0.12 {
+                glideUntil = now + 2.0      // a big jump (shot preset): glide like a camera operator
+            }
+            lastManualGoal = goal
+            crop = framer.follow(goal, source: sourceSize, aspect: aspect, now: now, snappy: now > glideUntil)
         }
         var image = scale(CIImage(cvPixelBuffer: input), crop: crop, to: outSize)
 
@@ -190,14 +211,26 @@ final class FrameProcessor: @unchecked Sendable {
             image = applyBackground(image, matte: matte, settings: s)
         }
 
-        // 6. Natural grade (look + contrast + saturation), one 3D LUT.
+        // 6. Natural grade (look + contrast + saturation), one 3D LUT, then an optional creative LUT.
         image = applyGrade(image)
+        if let name = s.customLUT, s.customLUTIntensity > 0.001, let custom = LUTLibrary.shared.load(name) {
+            image = applyCustomLUT(custom, to: image, intensity: s.customLUTIntensity)
+        }
 
         // 7. Detail.
         image = applyDetail(image, settings: s, size: outSize)
 
         // 8. Orientation.
         image = orient(image, settings: s, size: outSize).cropped(to: outRect)
+
+        // 9. Name tag (after mirroring so text always reads correctly), then privacy.
+        if s.nameTagEnabled, !s.nameTagTitle.trimmingCharacters(in: .whitespaces).isEmpty, !s.privacy,
+           let tag = nameTag(title: s.nameTagTitle, subtitle: s.nameTagSubtitle, size: outSize) {
+            image = tag.composited(over: image)
+        }
+        if s.privacy {
+            image = privacyImage(image, size: outSize)
+        }
 
         guard let output = outputPool.make(outSize) else { return }
         ciContext.render(image, to: output, bounds: outRect, colorSpace: srgb)
@@ -222,12 +255,15 @@ final class FrameProcessor: @unchecked Sendable {
             if vSize == outSize {
                 onVirtualCameraFrame(output, time)
             } else if let vbuf = virtualPool.make(vSize) {
-                let scaled = CIImage(cvPixelBuffer: output)
-                    .transformed(by: CGAffineTransform(scaleX: vSize.width / outSize.width, y: vSize.height / outSize.height))
-                ciContext.render(scaled, to: vbuf, bounds: CGRect(origin: .zero, size: vSize), colorSpace: srgb)
+                ciContext.render(fitForVirtualCamera(CIImage(cvPixelBuffer: output), from: outSize, to: vSize), to: vbuf,
+                                 bounds: CGRect(origin: .zero, size: vSize), colorSpace: srgb)
                 onVirtualCameraFrame(vbuf, time)
             }
         }
+
+        // Timing (wall clock, including GPU work: rendering into a pixel buffer waits for completion).
+        timings.append((CACurrentMediaTime() - now) * 1000)
+        if timings.count > 120 { timings.removeFirst(timings.count - 120) }
 
         // Side work, off the video thread.
         if frameCount % 8 == 0 {
@@ -237,7 +273,10 @@ final class FrameProcessor: @unchecked Sendable {
                                 zoom: Double(fullHeight / max(1, crop.height)),
                                 facesDetected: max(detection?.faces.count ?? 0, detection?.bodies.count ?? 0),
                                 autoExposure: s.autoLight ? ev : 0,
-                                skinCorrection: s.naturalSkin && abs(gains.x - 1) + abs(gains.y - 1) + abs(gains.z - 1) > 0.01))
+                                skinCorrection: s.naturalSkin && !s.hasWhitePoint && abs(gains.x - 1) + abs(gains.y - 1) + abs(gains.z - 1) > 0.01,
+                                pipelineMs: timings.reduce(0, +) / Double(max(1, timings.count)),
+                                pipelineP95Ms: percentile(timings, 0.95),
+                                gpuName: metalDevice?.name ?? "CPU (no Metal device)"))
         }
         if frameCount % 36 == 0 {
             publishThumbnails(clean: cleanBuffer, settings: s, ev: ev, gains: gains)
@@ -274,7 +313,7 @@ final class FrameProcessor: @unchecked Sendable {
 
     /// Averages with the previous frame only where nothing moved, so static skin keeps its texture
     /// while sensor noise drops; moving areas use the current frame and never ghost.
-    private func temporalDenoise(current: CIImage, previous: CIImage, strength: Double) -> CIImage {
+    func temporalDenoise(current: CIImage, previous: CIImage, strength: Double) -> CIImage {
         let ext = current.extent
         let diff = CIFilter.colorAbsoluteDifference()
         diff.inputImage = current.applyingFilter("CILinearToSRGBToneCurve")
@@ -318,7 +357,16 @@ final class FrameProcessor: @unchecked Sendable {
             image = f.outputImage ?? image
         }
 
-        if s.naturalSkin, abs(skinGains.x - 1) + abs(skinGains.y - 1) + abs(skinGains.z - 1) > 0.002 {
+        if s.hasWhitePoint {
+            // The user's picked white point (linear-light gains); it replaces Natural Skin Tones.
+            let w = s.whitePointGains
+            let f = CIFilter.colorMatrix()
+            f.inputImage = image
+            f.rVector = CIVector(x: CGFloat(w[0]), y: 0, z: 0, w: 0)
+            f.gVector = CIVector(x: 0, y: CGFloat(w[1]), z: 0, w: 0)
+            f.bVector = CIVector(x: 0, y: 0, z: CGFloat(w[2]), w: 0)
+            image = f.outputImage ?? image
+        } else if s.naturalSkin, abs(skinGains.x - 1) + abs(skinGains.y - 1) + abs(skinGains.z - 1) > 0.002 {
             // White balance as per-channel gains in linear light (von Kries), from the skin tone line.
             let f = CIFilter.colorMatrix()
             f.inputImage = image
@@ -352,17 +400,26 @@ final class FrameProcessor: @unchecked Sendable {
 
     private func updateAutoLight(settings s: ProcessingSettings, source: CVPixelBuffer, detection: FramingDetection?,
                                  now: Double, dt: Double) {
-        let active = s.autoLight || s.naturalSkin
+        let active = s.autoLight || (s.naturalSkin && !s.hasWhitePoint)
         let face = detection?.faces.max { $0.width * $0.height < $1.width * $1.height }
-        if active, let face {
-            lastFaceSeen = now
-            if frameCount % 5 == 0 { startMeter(source: source, face: face) }
+        if let face { lastFaceSeen = now }
+
+        if active, frameCount % 5 == 0 {
+            if let face, s.meteringMode == .face {
+                // Cheeks and nose: skin only, no hair or background.
+                let region = CGRect(x: face.minX + face.width * 0.22, y: face.minY + face.height * 0.18,
+                                    width: face.width * 0.56, height: face.height * 0.5)
+                startMeter(source: source, region: region, isFace: true, settings: s)
+            } else if s.autoLight, s.meteringMode != .face || now - lastFaceSeen > 1.0 {
+                // Centre-weighted (centre 50%) or whole-frame average, like Elgato Camera Hub's modes.
+                let region = s.meteringMode == .average ? CGRect(x: 0, y: 0, width: 1, height: 1)
+                                                        : CGRect(x: 0.25, y: 0.2, width: 0.5, height: 0.6)
+                startMeter(source: source, region: region, isFace: false, settings: s)
+            }
         }
         lock.locked {
-            if !active || now - lastFaceSeen > 2.5 {
-                targetEV = 0
-                targetGains = SIMD3(1, 1, 1)
-            }
+            if !s.autoLight { targetEV = 0 }
+            if !s.naturalSkin || s.hasWhitePoint || now - lastFaceSeen > 2.5 { targetGains = SIMD3(1, 1, 1) }
             let aEV = 1 - exp(-dt / 1.2)        // exposure eases over ~1 s
             let aWB = 1 - exp(-dt / 2.0)        // colour eases over ~2 s
             currentEV += (targetEV - currentEV) * aEV
@@ -370,8 +427,8 @@ final class FrameProcessor: @unchecked Sendable {
         }
     }
 
-    /// Averages the skin in the middle of the face (cheeks, nose; not hair or background).
-    private func startMeter(source: CVPixelBuffer, face: CGRect) {
+    /// Averages a normalized region of the camera image and derives the auto-light targets.
+    private func startMeter(source: CVPixelBuffer, region normalized: CGRect, isFace: Bool, settings s: ProcessingSettings) {
         let start: Bool = lock.locked {
             guard !meterBusy else { return false }
             meterBusy = true
@@ -382,33 +439,152 @@ final class FrameProcessor: @unchecked Sendable {
             defer { lock.locked { meterBusy = false } }
             let image = CIImage(cvPixelBuffer: source)
             let W = image.extent.width, H = image.extent.height
-            let region = CGRect(x: (face.minX + face.width * 0.22) * W, y: (face.minY + face.height * 0.18) * H,
-                                width: face.width * 0.56 * W, height: face.height * 0.5 * H).integral
-            guard region.width >= 4, region.height >= 4 else { return }
-            let avg = CIFilter.areaAverage()
-            avg.inputImage = image
-            avg.extent = region
-            guard let out = avg.outputImage else { return }
-            var px = [Float](repeating: 0, count: 4)
-            px.withUnsafeMutableBytes { ptr in
-                ciContext.render(out, toBitmap: ptr.baseAddress!, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                                 format: .RGBAf, colorSpace: linearSRGB)
-            }
-            let r = Double(px[0]), g = Double(px[1]), b = Double(px[2])
-            let ev = GradeEngine.exposureCorrection(faceLuminance: ColorMath.luminance(r, g, b))
-            let gains = GradeEngine.skinBalanceGains(faceLinear: r, g, b)
+            let region = CGRect(x: normalized.minX * W, y: normalized.minY * H,
+                                width: normalized.width * W, height: normalized.height * H).integral
+            guard let rgb = average(image, in: region) else { return }
+            let y = ColorMath.luminance(rgb.x, rgb.y, rgb.z)
+            let ev = isFace ? GradeEngine.exposureCorrection(faceLuminance: y) : GradeEngine.sceneExposureCorrection(meanLuminance: y)
+            let gains = isFace ? GradeEngine.skinBalanceGains(faceLinear: rgb.x, rgb.y, rgb.z) : (1.0, 1.0, 1.0)
             lock.locked {
-                targetEV = ev
-                targetGains = SIMD3(gains.0, gains.1, gains.2)
+                if s.autoLight { targetEV = ev }
+                if isFace { targetGains = SIMD3(gains.0, gains.1, gains.2) }
             }
         }
+    }
+
+    /// Mean linear RGB of a region (GPU reduction).
+    func average(_ image: CIImage, in region: CGRect) -> SIMD3<Double>? {
+        let r = region.intersection(image.extent)
+        guard r.width >= 2, r.height >= 2 else { return nil }
+        let avg = CIFilter.areaAverage()
+        avg.inputImage = image
+        avg.extent = r
+        guard let out = avg.outputImage else { return nil }
+        var px = [Float](repeating: 0, count: 4)
+        px.withUnsafeMutableBytes { ptr in
+            ciContext.render(out, toBitmap: ptr.baseAddress!, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                             format: .RGBAf, colorSpace: linearSRGB)
+        }
+        return SIMD3(Double(px[0]), Double(px[1]), Double(px[2]))
+    }
+
+    /// For "Pick White Point": linear gains that make the clicked spot neutral (same brightness).
+    /// `point` is normalized in the *displayed* image (mirroring already accounted for by the caller).
+    func whitePointGains(at point: CGPoint) -> [Double]? {
+        guard let buffer = lock.locked({ previousClean }) else { return nil }
+        let image = CIImage(cvPixelBuffer: buffer)
+        let size = image.extent.size
+        let side = max(6, size.height * 0.015)
+        let region = CGRect(x: point.x * size.width - side / 2, y: point.y * size.height - side / 2, width: side, height: side)
+        guard let rgb = average(image, in: region) else { return nil }
+        let y = ColorMath.luminance(rgb.x, rgb.y, rgb.z)
+        guard y > 0.01, rgb.x > 1e-4, rgb.y > 1e-4, rgb.z > 1e-4 else { return nil }
+        func clampGain(_ g: Double) -> Double { min(2.0, max(0.5, g)) }
+        return [clampGain(y / rgb.x), clampGain(y / rgb.y), clampGain(y / rgb.z)]
+    }
+
+    // MARK: Gestures
+
+    private func handleGestures(_ detection: FramingDetection?, now: Double) {
+        guard let detection, detection.time != lastGestureDetection else { return }
+        lastGestureDetection = detection.time
+        let gesture = detection.hands.lazy.compactMap(GestureClassifier.classify).first
+        if let fired = gestureTracker.update(gesture, now: now) {
+            onGesture?(fired)
+        }
+    }
+
+    // MARK: Overlays & privacy
+
+    /// A glassy lower-third name tag, drawn with Core Graphics and cached until the text or size changes.
+    private func nameTag(title: String, subtitle: String, size: CGSize) -> CIImage? {
+        let key = "\(title)|\(subtitle)|\(Int(size.width))x\(Int(size.height))"
+        if let cached = nameTagCache, cached.key == key { return cached.image }
+
+        let unit = min(size.width, size.height)
+        let titleFont = NSFont.systemFont(ofSize: unit * 0.042, weight: .semibold)
+        let subFont = NSFont.systemFont(ofSize: unit * 0.027, weight: .regular)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(white: 0, alpha: 0.35)
+        shadow.shadowBlurRadius = unit * 0.006
+        let titleText = NSAttributedString(string: title, attributes: [.font: titleFont, .foregroundColor: NSColor.white, .shadow: shadow])
+        let subText = NSAttributedString(string: subtitle, attributes: [.font: subFont, .foregroundColor: NSColor(white: 1, alpha: 0.82), .shadow: shadow])
+        let pad = unit * 0.024
+        let ts = titleText.size(), ss = subtitle.isEmpty ? .zero : subText.size()
+        let w = ceil(max(ts.width, ss.width) + pad * 2.4)
+        let h = ceil(ts.height + (subtitle.isEmpty ? 0 : ss.height + pad * 0.15) + pad * 1.6)
+        guard w > 1, h > 1, let ctx = CGContext(data: nil, width: Int(w), height: Int(h), bitsPerComponent: 8, bytesPerRow: 0,
+                                                 space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let rect = CGRect(x: 0, y: 0, width: w, height: h)
+        let path = CGPath(roundedRect: rect, cornerWidth: h * 0.28, cornerHeight: h * 0.28, transform: nil)
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(srgbRed: 0.06, green: 0.08, blue: 0.12, alpha: 0.55))
+        ctx.fillPath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.18))
+        ctx.setLineWidth(max(1, unit * 0.0015))
+        ctx.strokePath()
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        let textBottom = pad * 0.8
+        if !subtitle.isEmpty { subText.draw(at: CGPoint(x: pad * 1.2, y: textBottom)) }
+        titleText.draw(at: CGPoint(x: pad * 1.2, y: textBottom + (subtitle.isEmpty ? 0 : ss.height + pad * 0.15)))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let cg = ctx.makeImage() else { return nil }
+
+        let margin = unit * 0.045
+        let image = CIImage(cgImage: cg).transformed(by: CGAffineTransform(translationX: margin, y: margin * 1.3))
+        nameTagCache = (key, image)
+        return image
+    }
+
+    /// One click hides you: heavy blur, darker, with a clear "camera paused" label.
+    private func privacyImage(_ image: CIImage, size: CGSize) -> CIImage {
+        let rect = CGRect(origin: .zero, size: size)
+        let down: CGFloat = 1.0 / 16
+        let blurred = image.clampedToExtent()
+            .transformed(by: CGAffineTransform(scaleX: down, y: down))
+            .applyingGaussianBlur(sigma: 6)
+            .transformed(by: CGAffineTransform(scaleX: 1 / down, y: 1 / down))
+            .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -1.2])
+            .cropped(to: rect)
+        let label = CIFilter.textImageGenerator()
+        label.text = "Camera paused"
+        label.fontName = "HelveticaNeue-Medium"
+        label.fontSize = Float(min(size.width, size.height) * 0.05)
+        label.scaleFactor = 1
+        guard let text = label.outputImage else { return blurred }
+        let placed = text.transformed(by: CGAffineTransform(translationX: (size.width - text.extent.width) / 2 - text.extent.minX,
+                                                            y: (size.height - text.extent.height) / 2 - text.extent.minY))
+        return placed.composited(over: blurred).cropped(to: rect)
+    }
+
+    /// Other apps get 16:9; a vertical or square shot is centred on a soft, blurred fill of itself.
+    private func fitForVirtualCamera(_ image: CIImage, from size: CGSize, to target: CGSize) -> CIImage {
+        let rect = CGRect(origin: .zero, size: target)
+        let fit = min(target.width / size.width, target.height / size.height)
+        let fill = max(target.width / size.width, target.height / size.height)
+        let fg = image.transformed(by: CGAffineTransform(scaleX: fit, y: fit))
+            .transformed(by: CGAffineTransform(translationX: (target.width - size.width * fit) / 2, y: (target.height - size.height * fit) / 2))
+        let bg = image.transformed(by: CGAffineTransform(scaleX: fill, y: fill))
+            .transformed(by: CGAffineTransform(translationX: (target.width - size.width * fill) / 2, y: (target.height - size.height * fill) / 2))
+            .clampedToExtent().applyingGaussianBlur(sigma: 40)
+            .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -1.0])
+            .cropped(to: rect)
+        return fg.composited(over: bg).cropped(to: rect)
+    }
+
+    private func percentile(_ values: [Double], _ p: Double) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        return sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))]
     }
 
     // MARK: Background
 
     /// Person matte in output coordinates: temporally smoothed, then upsampled with the real
     /// image as a guide so its edge follows hair and shoulders instead of a blurry blob.
-    private func outputMatte(_ maskBuffer: CVPixelBuffer, sourceSize: CGSize, crop: CGRect, guide: CIImage) -> CIImage {
+    func outputMatte(_ maskBuffer: CVPixelBuffer, sourceSize: CGSize, crop: CGRect, guide: CIImage) -> CIImage {
         var mask = CIImage(cvPixelBuffer: maskBuffer)
         let mw = mask.extent.width, mh = mask.extent.height
         if let prev = previousMask, CVPixelBufferGetWidth(prev) == Int(mw), CVPixelBufferGetHeight(prev) == Int(mh) {
@@ -496,7 +672,7 @@ final class FrameProcessor: @unchecked Sendable {
     /// Normalized convolution: blur the background with the person removed (premultiplied by the
     /// background weight), then divide by the blurred weight. The person's colours can't bleed out,
     /// so there's no halo. A disc kernel gives lens-like bokeh instead of a smeary Gaussian.
-    private func haloFreeLensBlur(_ image: CIImage, matte: CIImage, radius: CGFloat) -> CIImage {
+    func haloFreeLensBlur(_ image: CIImage, matte: CIImage, radius: CGFloat) -> CIImage {
         let ext = image.extent
         // Background weight = 1 - person, pushed to 0 slightly early so edge pixels don't contribute.
         let weight = CIFilter.colorMatrix()
@@ -528,7 +704,7 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     /// Real optics keep sensor noise in out-of-focus areas; matching it hides the "pasted" look.
-    private func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.016) -> CIImage {
+    func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.016) -> CIImage {
         guard let noise = CIFilter.randomGenerator().outputImage else { return image }
         let shifted = noise
             .transformed(by: CGAffineTransform(translationX: CGFloat.random(in: 0..<512), y: CGFloat.random(in: 0..<512)))
@@ -579,6 +755,21 @@ final class FrameProcessor: @unchecked Sendable {
     private func applyGrade(_ image: CIImage) -> CIImage {
         guard let current = lock.locked({ lut }), !current.key.isNeutral else { return image }
         return applyCube(current.data, to: image)
+    }
+
+    private func applyCustomLUT(_ lut: CubeLUT, to image: CIImage, intensity: Double) -> CIImage {
+        let f = CIFilter.colorCubeWithColorSpace()
+        f.inputImage = image
+        f.cubeDimension = Float(lut.dimension)
+        f.cubeData = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+        f.colorSpace = srgb
+        guard let graded = f.outputImage?.cropped(to: image.extent) else { return image }
+        guard intensity < 0.999 else { return graded }
+        let mix = CIFilter.dissolveTransition()
+        mix.inputImage = image
+        mix.targetImage = graded
+        mix.time = Float(intensity)
+        return mix.outputImage?.cropped(to: image.extent) ?? graded
     }
 
     private func applyCube(_ data: Data, to image: CIImage) -> CIImage {

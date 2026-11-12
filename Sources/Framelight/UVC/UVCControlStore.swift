@@ -269,6 +269,22 @@ final class UVCControlStore: ObservableObject {
         }
     }
 
+    /// Re-reads the given controls and puts back any value another app changed. Returns how many were fixed.
+    func enforce(_ values: [String: Int]) async -> Int {
+        guard pendingWrites.isEmpty else { return 0 }
+        let ids = values.keys.filter { states[$0] != nil }
+        guard !ids.isEmpty else { return 0 }
+        await refresh(only: ids)
+        var fixed = 0
+        for id in ids {
+            guard let state = states[id], let want = values[id], state.canSet, state.current != want else { continue }
+            if !state.definition.isAutoSwitch && isAutoActive(for: state) { continue }
+            setValue(id, want)
+            fixed += 1
+        }
+        return fixed
+    }
+
     func resetToDefaults() {
         // Re-enable auto modes first, then restore defaults for everything.
         for state in supportedStates {

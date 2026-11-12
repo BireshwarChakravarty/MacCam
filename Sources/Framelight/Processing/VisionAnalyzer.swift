@@ -24,6 +24,11 @@ final class VisionAnalyzer: @unchecked Sendable {
         r.upperBodyOnly = true
         return r
     }()
+    private let handRequest: VNDetectHumanHandPoseRequest = {
+        let r = VNDetectHumanHandPoseRequest()
+        r.maximumHandCount = 2
+        return r
+    }()
     private let segmentationRequest: VNGeneratePersonSegmentationRequest = {
         let r = VNGeneratePersonSegmentationRequest()
         r.qualityLevel = .balanced
@@ -36,7 +41,7 @@ final class VisionAnalyzer: @unchecked Sendable {
 
     func clearMask() { lock.locked { _mask = nil } }
 
-    func submit(_ pixelBuffer: CVPixelBuffer, detect: Bool, segment: Bool) {
+    func submit(_ pixelBuffer: CVPixelBuffer, detect: Bool, segment: Bool, hands: Bool = false) {
         let now = CACurrentMediaTime()
 
         if detect {
@@ -49,11 +54,12 @@ final class VisionAnalyzer: @unchecked Sendable {
             if start {
                 detectQueue.async { [self] in
                     let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
-                    try? handler.perform([faceRequest, bodyRequest])
+                    try? handler.perform(hands ? [faceRequest, bodyRequest, handRequest] : [faceRequest, bodyRequest])
                     let faces = (faceRequest.results ?? []).filter { $0.confidence > 0.5 }.map(\.boundingBox)
                     let bodies = (bodyRequest.results ?? []).filter { $0.confidence > 0.4 }.map(\.boundingBox)
+                    let poses = hands ? (handRequest.results ?? []).compactMap(VisionAnalyzer.handPose) : []
                     lock.locked {
-                        _detection = Detection(faces: faces, bodies: bodies, time: CACurrentMediaTime())
+                        _detection = Detection(faces: faces, bodies: bodies, time: CACurrentMediaTime(), hands: poses)
                         detecting = false
                     }
                 }
@@ -78,5 +84,18 @@ final class VisionAnalyzer: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private static func handPose(_ o: VNHumanHandPoseObservation) -> HandPose? {
+        guard let points = try? o.recognizedPoints(.all) else { return nil }
+        func p(_ j: VNHumanHandPoseObservation.JointName) -> HandPose.Point? {
+            guard let v = points[j] else { return nil }
+            return HandPose.Point(x: Double(v.location.x), y: Double(v.location.y), confidence: Double(v.confidence))
+        }
+        return HandPose(wrist: p(.wrist), thumbTip: p(.thumbTip), thumbMP: p(.thumbMP),
+                        indexTip: p(.indexTip), indexPIP: p(.indexPIP),
+                        middleTip: p(.middleTip), middlePIP: p(.middlePIP),
+                        ringTip: p(.ringTip), ringPIP: p(.ringPIP),
+                        littleTip: p(.littleTip), littlePIP: p(.littlePIP))
     }
 }

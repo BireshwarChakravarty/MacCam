@@ -46,6 +46,19 @@ Everything here is designed to look like a better camera, not like a filter.
 
 The Camera tab also has a **Natural Baseline** button. It turns down the webcam's own over-sharpening and colour boosts, which software can't undo afterwards.
 
+### Control & automation
+* **Shots**: save four framings and recall them with ⌘1–⌘4. The view glides there like a camera operator would.
+* **Gesture control**: hold up an open palm ✋ to toggle Auto Framing, or a peace sign ✌️ to toggle background blur.
+* **Metering**: face, centre-weighted or average, with face-aware Auto Light.
+* **Pick White Point**: click something white in the preview.
+* **Creative LUTs**: import `.cube` files and blend them in on top of a look.
+* **Name tag** lower third and one-click **Privacy** blur (⌘⇧H).
+* **Output shapes**: 16:9, 4:3, 1:1 and vertical 9:16.
+* **Automations**: apply a preset when an app comes to the front, and **Hold Camera Settings** when Zoom or Teams changes them.
+* **Performance readout** in the Info tab, plus a headless benchmark: `Framelight.app/Contents/MacOS/Framelight --benchmark`.
+
+See [docs/COMPETITIVE_AUDIT.md](docs/COMPETITIVE_AUDIT.md) for how this compares with Camo, Elgato Camera Hub, Opal, Insta360, OBSBOT, NVIDIA Broadcast and the UVC utilities.
+
 ### Presets
 Save all hardware and studio settings under a name, apply them in one click, and import or export them as JSON. Starter looks are included.
 

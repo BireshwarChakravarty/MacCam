@@ -18,6 +18,13 @@ struct FramelightApp: App {
     @StateObject private var model = AppModel()
     @State private var started = false
 
+    init() {
+        // Headless benchmark: `Framelight --benchmark [--out report.md]`
+        if CommandLine.arguments.contains("--benchmark") {
+            exit(Benchmark.run())
+        }
+    }
+
     var body: some Scene {
         Window("Framelight", id: "main") {
             ContentView()
@@ -47,6 +54,13 @@ struct FramelightApp: App {
                     .keyboardShortcut("m", modifiers: [.command, .shift])
                 Button("Compare Before / After") { model.toggleCompare() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
+                Button(model.settings.privacy ? "Resume Camera" : "Privacy (Hide Me)") { model.togglePrivacy() }
+                    .keyboardShortcut("h", modifiers: [.command, .shift])
+                Divider()
+                ForEach(0..<4, id: \.self) { i in
+                    Button("Shot \(i + 1)") { model.recallShot(i) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                }
                 Divider()
                 Button("Reload Camera Controls") { Task { await model.reloadControls() } }
             }

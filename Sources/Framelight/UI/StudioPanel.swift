@@ -11,6 +11,7 @@ struct StudioPanel: View {
             detailSection
             backgroundSection
             framingSection
+            overlaySection
             outputSection
             virtualCameraSection
 
@@ -40,6 +41,20 @@ struct StudioPanel: View {
             }
             .padding(.vertical, 4)
             TunedSlider("Strength", value: $model.settings.lookIntensity, in: 0...1, reset: 1) { "\(Int(($0 * 100).rounded()))%" }
+            HStack {
+                Picker("Creative LUT", selection: Binding(get: { model.settings.customLUT ?? "" },
+                                                          set: { model.settings.customLUT = $0.isEmpty ? nil : $0 })) {
+                    Text("None").tag("")
+                    ForEach(model.lutNames, id: \.self) { Text($0).tag($0) }
+                }
+                Button("Import…") { model.importLUT() }
+            }
+            if let lut = model.settings.customLUT {
+                TunedSlider("LUT Strength", value: $model.settings.customLUTIntensity, in: 0...1, reset: 1) { "\(Int(($0 * 100).rounded()))%" }
+                Button("Remove “\(lut)” from Library", role: .destructive) { model.removeLUT(lut) }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
         } header: {
             Label("Look", systemImage: "camera.filters")
         } footer: {
@@ -57,10 +72,29 @@ struct StudioPanel: View {
                     Text(autoLightStatus).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if model.settings.autoLight {
+                Picker("Metering", selection: $model.settings.meteringMode) {
+                    ForEach(MeteringMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
             Toggle(isOn: $model.settings.naturalSkin) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Natural Skin Tones")
                     Text(skinStatus).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(model.settings.hasWhitePoint)
+            HStack {
+                Button {
+                    model.pickingWhitePoint.toggle()
+                } label: {
+                    Label(model.pickingWhitePoint ? "Click something white in the preview…" : "Pick White Point",
+                          systemImage: "eyedropper")
+                }
+                Spacer()
+                if model.settings.hasWhitePoint {
+                    Button("Clear") { model.clearWhitePoint() }
                 }
             }
 
@@ -91,12 +125,13 @@ struct StudioPanel: View {
     }
 
     private var autoLightStatus: String {
-        guard model.settings.autoLight else { return "Meters your face and only steps in when it's too dark or too bright." }
+        guard model.settings.autoLight else { return "Meters your face (or the scene) and only steps in when it's too dark or too bright." }
         guard let ev = model.stats?.autoExposure, abs(ev) >= 0.05 else { return "Your face is well exposed. No correction." }
         return String(format: "Correcting %+.1f EV for your face", ev)
     }
 
     private var skinStatus: String {
+        if model.settings.hasWhitePoint { return "Paused while your picked white point is in use." }
         guard model.settings.naturalSkin else { return "Removes green or magenta casts using your skin tone, like a colourist." }
         return model.stats?.skinCorrection == true ? "Correcting a colour cast from the lighting." : "Skin tones look natural. No correction."
     }
@@ -201,6 +236,38 @@ struct StudioPanel: View {
                     TunedSlider("Tilt", value: $model.settings.panY, in: -1...1, reset: 0) { String(format: "%+.2f", $0) }
                 }
             }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Shots").font(.subheadline)
+                HStack(spacing: 6) {
+                    ForEach(0..<4, id: \.self) { i in
+                        Button {
+                            model.recallShot(i)
+                        } label: {
+                            VStack(spacing: 1) {
+                                Text("\(i + 1)").font(.headline)
+                                Text(model.shots[i].map { String(format: "%.1f×", $0.zoom) } ?? "empty")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                        }
+                        .buttonStyle(.bordered)
+                        .contextMenu {
+                            Button("Save Current Framing to Shot \(i + 1)") { model.saveShot(i) }
+                            if model.shots[i] != nil { Button("Clear Shot \(i + 1)", role: .destructive) { model.clearShot(i) } }
+                        }
+                        .help("⌘\(i + 1) to recall · right-click to save")
+                    }
+                }
+                Text("Right-click a shot to save the current zoom and pan. Recall with ⌘1–⌘4; the camera glides there.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Toggle(isOn: $model.settings.gestureControl) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Gesture Control")
+                    Text("Hold up an open palm ✋ to toggle Auto Framing, or a peace sign ✌️ to toggle background blur.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 Toggle("Mirror", isOn: $model.settings.mirror)
                 Spacer()
@@ -211,12 +278,40 @@ struct StudioPanel: View {
         }
     }
 
+    // MARK: Overlay
+
+    private var overlaySection: some View {
+        Section {
+            Toggle("Name Tag", isOn: $model.settings.nameTagEnabled)
+            if model.settings.nameTagEnabled {
+                TextField("Name", text: $model.settings.nameTagTitle)
+                TextField("Title or handle (optional)", text: $model.settings.nameTagSubtitle)
+            }
+            Toggle(isOn: Binding(get: { model.settings.privacy }, set: { _ in model.togglePrivacy() })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Privacy")
+                    Text("Blurs you completely in calls and recordings (⌘⇧H).").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Label("Overlay & Privacy", systemImage: "text.below.photo")
+        }
+    }
+
     // MARK: Output
 
     private var outputSection: some View {
         Section {
             Picker("Output Resolution", selection: $model.settings.outputResolution) {
                 ForEach(OutputResolution.allCases) { Text($0.rawValue).tag($0) }
+            }
+            Picker("Shape", selection: $model.settings.outputAspect) {
+                ForEach(OutputAspect.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            if model.settings.outputAspect != .widescreen {
+                Text("Recordings use this shape. Other apps receive 16:9 with the shot centred on a soft fill.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Toggle("Record in HEVC (smaller files)", isOn: $model.recordHEVC)
             HStack {

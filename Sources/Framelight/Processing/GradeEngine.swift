@@ -266,6 +266,17 @@ enum GradeEngine {
         return 0
     }
 
+    /// Centre-weighted / average metering: a scene's mean usually sits near 18% grey (≈ 0.46 encoded).
+    /// Correct only outside a comfortable band, like a camera's exposure latitude.
+    static let sceneBandLinear: ClosedRange<Double> = ColorMath.srgbToLinear(0.33)...ColorMath.srgbToLinear(0.60)
+
+    static func sceneExposureCorrection(meanLuminance y: Double) -> Double {
+        guard y > 1e-4 else { return 0 }
+        if y < sceneBandLinear.lowerBound { return min(1.0, log2(sceneBandLinear.lowerBound / y)) }
+        if y > sceneBandLinear.upperBound { return max(-1.0, log2(sceneBandLinear.upperBound / y)) }
+        return 0
+    }
+
     /// Skin hues accepted as-is; outside this the light (not the skin) is assumed to be off.
     static let acceptedSkinHues: ClosedRange<Double> = 38...88
 

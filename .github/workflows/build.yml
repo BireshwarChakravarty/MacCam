@@ -25,6 +25,18 @@ jobs:
           ls /tmp/AppIcon.iconset
           /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" dist/Framelight.app/Contents/Info.plist
 
+      - name: Benchmark (speed + quality vs. typical methods)
+        run: |
+          dist/Framelight.app/Contents/MacOS/Framelight --benchmark --out benchmark.md
+          cat benchmark.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-report
+          path: benchmark.md
+          if-no-files-found: ignore
+
       - name: Package
         run: |
           cd dist
@@ -52,11 +64,13 @@ jobs:
       - name: Auto framing simulation
         run: |
           swiftc -swift-version 5 Sources/Framelight/Processing/AutoFramer.swift Sources/Framelight/Processing/ProcessingSettings.swift \
-            Sources/Framelight/Processing/GradeEngine.swift Sources/Framelight/Processing/ColorMath.swift Tests/FramingCheck/main.swift -o framingcheck
+            Sources/Framelight/Processing/GradeEngine.swift Sources/Framelight/Processing/ColorMath.swift \
+            Sources/Framelight/Processing/Gestures.swift Tests/FramingCheck/main.swift -o framingcheck
           ./framingcheck
 
       - name: Natural colour engine checks
         run: |
           swiftc -O -swift-version 5 Sources/Framelight/Processing/ColorMath.swift Sources/Framelight/Processing/GradeEngine.swift \
-            Tests/ColorCheck/main.swift -o colorcheck
+            Sources/Framelight/Processing/LUTLibrary.swift Sources/Framelight/Processing/Gestures.swift \
+            Sources/Framelight/Processing/ProcessingSettings.swift Tests/ColorCheck/main.swift -o colorcheck
           ./colorcheck

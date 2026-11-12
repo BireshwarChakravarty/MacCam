@@ -140,5 +140,79 @@ do {
     print(String(format: "  info %.0f ms per LUT (debug-free -O build)", Date().timeIntervalSince(start) * 1000 / Double(LookStyle.allCases.count)))
 }
 
+print("Custom LUTs (.cube)")
+do {
+    var identity = "TITLE \"Identity\"\n# comment\nLUT_3D_SIZE 2\n"
+    for b in 0...1 { for g in 0...1 { for r in 0...1 { identity += "\(r) \(g) \(b)\n" } } }
+    let lut = try? CubeParser.parse(identity, name: "id")
+    expect(lut?.dimension == 2 && lut?.data.count == 32, "parses a 2³ cube")
+    expect(lut.map { $0.data[4] == 1 && $0.data[5] == 0 && $0.data[6] == 0 } ?? false, "red varies fastest (matches Core Image)")
+    expect((try? CubeParser.parse("LUT_1D_SIZE 1024\n0 0 0", name: "x")) == nil, "rejects 1D LUTs")
+    expect((try? CubeParser.parse("LUT_3D_SIZE 2\n0 0 0\n1 1 1", name: "x")) == nil, "rejects truncated data")
+    expect((try? CubeParser.parse(identity.replacingOccurrences(of: "LUT_3D_SIZE 2", with: "LUT_3D_SIZE 2\nDOMAIN_MAX 4 4 4"), name: "x")) == nil,
+           "rejects log-domain LUTs")
+}
+
+print("Saved settings survive app updates")
+do {
+    // A settings file from an older version: a removed look ("cinematic"), a renamed key, no new keys.
+    let old: [String: Any] = ["autoFraming": true, "look": "cinematic", "warmth": 20.0, "backgroundBlur": 0.4,
+                              "mirror": true, "framingSubject": "Face"]
+    let s = ProcessingSettings.tolerant(fromObject: old)
+    expect(s != nil, "old settings still load")
+    expect(s?.autoFraming == true && s?.warmth == 20 && s?.mirror == true && s?.framingSubject == .face, "valid values kept")
+    expect(s?.look == .natural, "unknown look falls back to Natural")
+    expect(s?.meteringMode == .face && s?.denoise == 0.35, "new settings get defaults")
+}
+
+print("Output shapes")
+do {
+    var s = ProcessingSettings()
+    s.outputResolution = .hd1080
+    s.outputAspect = .widescreen; expect(s.outputSize == CGSize(width: 1920, height: 1080), "16:9 → 1920×1080")
+    s.outputAspect = .vertical; expect(s.outputSize == CGSize(width: 1080, height: 1920), "9:16 → 1080×1920")
+    s.outputAspect = .square; expect(s.outputSize == CGSize(width: 1080, height: 1080), "1:1 → 1080×1080")
+    s.outputAspect = .classic; expect(s.outputSize == CGSize(width: 1440, height: 1080), "4:3 → 1440×1080")
+}
+
+print("Gestures")
+do {
+    typealias P = HandPose.Point
+    func hand(extended fingers: Set<String>, thumb: Bool) -> HandPose {
+        // Wrist at the bottom, fingers pointing up; an extended tip is far above its PIP joint.
+        let w = P(x: 0.5, y: 0.2, confidence: 0.9)
+        func finger(_ name: String, x: Double) -> (P, P) {
+            let pip = P(x: x, y: 0.42, confidence: 0.9)
+            let tip = fingers.contains(name) ? P(x: x + (name == "middle" ? 0.03 : name == "index" ? -0.03 : 0), y: 0.6, confidence: 0.9)
+                                             : P(x: x, y: 0.34, confidence: 0.9)
+            return (tip, pip)
+        }
+        let i = finger("index", x: 0.44), m = finger("middle", x: 0.5), r = finger("ring", x: 0.56), l = finger("little", x: 0.61)
+        let thumbMP = P(x: 0.38, y: 0.3, confidence: 0.9)
+        let thumbTip = thumb ? P(x: 0.28, y: 0.42, confidence: 0.9) : P(x: 0.42, y: 0.28, confidence: 0.9)
+        return HandPose(wrist: w, thumbTip: thumbTip, thumbMP: thumbMP, indexTip: i.0, indexPIP: i.1, middleTip: m.0, middlePIP: m.1,
+                        ringTip: r.0, ringPIP: r.1, littleTip: l.0, littlePIP: l.1)
+    }
+    expect(GestureClassifier.classify(hand(extended: ["index", "middle", "ring", "little"], thumb: true)) == .openPalm, "open palm")
+    expect(GestureClassifier.classify(hand(extended: ["index", "middle"], thumb: false)) == .victory, "peace sign")
+    expect(GestureClassifier.classify(hand(extended: [], thumb: false)) == nil, "fist is ignored")
+    expect(GestureClassifier.classify(hand(extended: ["index"], thumb: false)) == nil, "pointing is ignored")
+
+    var tracker = GestureTracker()
+    var fired: [HandGesture] = []
+    for i in 0..<30 { if let g = tracker.update(.openPalm, now: Double(i) * 0.1) { fired.append(g) } }   // held 3 s
+    expect(fired == [.openPalm], "fires once after holding, not repeatedly")
+    var quick = GestureTracker()
+    var quickFired = false
+    for i in 0..<5 { if quick.update(.openPalm, now: Double(i) * 0.1) != nil { quickFired = true } }      // 0.4 s wave
+    expect(!quickFired, "a brief wave doesn't trigger")
+}
+
+print("Scene metering")
+do {
+    expect(GradeEngine.sceneExposureCorrection(meanLuminance: 0.18) == 0, "18% grey scene untouched")
+    expect(GradeEngine.sceneExposureCorrection(meanLuminance: 0.03) > 0.5, "dark scene lifted")
+}
+
 print(failures == 0 ? "ALL COLOR CHECKS PASSED" : "\(failures) FAILURE(S)")
 exit(failures == 0 ? 0 : 1)

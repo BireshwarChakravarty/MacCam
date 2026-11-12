@@ -54,11 +54,73 @@ struct PresetsPanel: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            automationsSection
+
             Section {
                 Button("Import Preset…", action: importPreset)
             }
         }
         .formStyle(.grouped)
+    }
+
+    @State private var ruleApp = ""
+    @State private var rulePreset: UUID?
+
+    private var runningApps: [(id: String, name: String)] {
+        var seen = Set<String>()
+        return NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .compactMap { app -> (id: String, name: String)? in
+                guard let id = app.bundleIdentifier, seen.insert(id).inserted else { return nil }
+                return (id: id, name: app.localizedName ?? id)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var automationsSection: some View {
+        Section {
+            ForEach(store.rules) { rule in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(rule.appName)
+                        Text("→ " + (store.presets.first { $0.id == rule.presetID }?.name ?? "missing preset"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(role: .destructive) { store.removeRule(rule) } label: { Image(systemName: "trash") }
+                        .buttonStyle(.borderless)
+                }
+            }
+            Picker("When", selection: $ruleApp) {
+                Text("Choose an open app…").tag("")
+                ForEach(runningApps, id: \.id) { Text($0.name).tag($0.id) }
+            }
+            Picker("Apply", selection: $rulePreset) {
+                Text("Choose a preset…").tag(UUID?.none)
+                ForEach(store.presets) { Text($0.name).tag(UUID?.some($0.id)) }
+            }
+            Button("Add Rule") {
+                guard let preset = rulePreset, let app = runningApps.first(where: { $0.id == ruleApp }) else { return }
+                store.addRule(bundleID: app.id, appName: app.name, presetID: preset)
+                ruleApp = ""; rulePreset = nil
+            }
+            .disabled(ruleApp.isEmpty || rulePreset == nil)
+            Toggle(isOn: $model.holdCameraSettings) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Hold Camera Settings")
+                    Text("Zoom, Teams and browsers sometimes reset webcam settings. Framelight puts yours back within seconds.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let last = model.lastAutomation {
+                Text("Last applied: \(last)").font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            Label("Automations", systemImage: "bolt.badge.clock")
+        } footer: {
+            Text("When an app comes to the front, Framelight applies the preset you picked for it, for example Meeting Focus for Zoom and Streamer for OBS.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private func save() {

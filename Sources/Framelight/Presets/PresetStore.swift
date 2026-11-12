@@ -10,9 +10,40 @@ struct Preset: Codable, Identifiable, Equatable {
     var builtIn = false
 }
 
+/// "When this app comes to the front, apply this preset."
+struct AppRule: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var bundleID: String
+    var appName: String
+    var presetID: UUID
+}
+
 /// Named snapshots of hardware + software settings, stored as JSON in Application Support.
 final class PresetStore: ObservableObject {
     @Published private(set) var presets: [Preset] = []
+    @Published private(set) var rules: [AppRule] = []
+
+    private let rulesURL: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Framelight", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.appendingPathComponent("automations.json")
+    }()
+
+    func addRule(bundleID: String, appName: String, presetID: UUID) {
+        rules.removeAll { $0.bundleID == bundleID }
+        rules.append(AppRule(bundleID: bundleID, appName: appName, presetID: presetID))
+        saveRules()
+    }
+
+    func removeRule(_ rule: AppRule) {
+        rules.removeAll { $0.id == rule.id }
+        saveRules()
+    }
+
+    private func saveRules() {
+        if let data = try? JSONEncoder().encode(rules) { try? data.write(to: rulesURL, options: .atomic) }
+    }
 
     private let url: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -50,7 +81,10 @@ final class PresetStore: ObservableObject {
     }
 
     func importJSON(from url: URL) throws {
-        var preset = try JSONDecoder().decode(Preset.self, from: Data(contentsOf: url))
+        guard let dict = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
+              var preset = Self.preset(from: dict) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
         preset.id = UUID()
         preset.builtIn = false
         presets.append(preset)
@@ -59,10 +93,26 @@ final class PresetStore: ObservableObject {
 
     private func load() {
         var stored: [Preset] = []
-        if let data = try? Data(contentsOf: url), let decoded = try? JSONDecoder().decode([Preset].self, from: data) {
-            stored = decoded
+        // Tolerant: presets saved by older versions keep their values; new settings get defaults.
+        if let data = try? Data(contentsOf: url),
+           let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            stored = array.compactMap(Self.preset(from:))
         }
         presets = Self.builtIns + stored
+        if let data = try? Data(contentsOf: rulesURL), let decoded = try? JSONDecoder().decode([AppRule].self, from: data) {
+            rules = decoded
+        }
+    }
+
+    private static func preset(from dict: [String: Any]) -> Preset? {
+        guard let name = dict["name"] as? String,
+              let softwareDict = dict["software"] as? [String: Any],
+              let software = ProcessingSettings.tolerant(fromObject: softwareDict) else { return nil }
+        var p = Preset(name: name, software: software)
+        if let id = (dict["id"] as? String).flatMap(UUID.init(uuidString:)) { p.id = id }
+        if let created = dict["created"] as? Double { p.created = Date(timeIntervalSinceReferenceDate: created) }
+        if let hardware = dict["hardware"] as? [String: Int] { p.hardware = hardware }
+        return p
     }
 
     private func save() {

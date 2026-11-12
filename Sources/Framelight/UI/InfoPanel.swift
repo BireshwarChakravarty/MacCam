@@ -13,12 +13,28 @@ struct InfoPanel: View {
                 LabeledContent("Capture format", value: model.camera.formats.first { $0.id == model.camera.activeFormatID }?.label ?? "—")
                 LabeledContent("Measured frame rate", value: String(format: "%.1f fps", model.camera.measuredFPS))
                 if let stats = model.stats {
+                    LabeledContent("Processing time", value: String(format: "%.1f ms avg · %.1f ms p95", stats.pipelineMs, stats.pipelineP95Ms))
+                    LabeledContent("Frame budget used", value: String(format: "%.0f%% of %.0f ms",
+                                                                      stats.pipelineMs / (1000 / max(model.camera.measuredFPS, 1)) * 100,
+                                                                      1000 / max(model.camera.measuredFPS, 1)))
+                    LabeledContent("GPU", value: stats.gpuName)
                     LabeledContent("Sensor image", value: "\(Int(stats.sourceSize.width))×\(Int(stats.sourceSize.height))")
                     LabeledContent("Output", value: "\(Int(stats.outputSize.width))×\(Int(stats.outputSize.height))")
                     LabeledContent("Current zoom", value: String(format: "%.2f×", stats.zoom))
                     LabeledContent("Crop", value: String(format: "%.0f,%.0f  %.0f×%.0f", stats.crop.minX, stats.crop.minY,
                                                          stats.crop.width, stats.crop.height))
                 }
+            }
+
+            Section {
+                Text("Framelight --benchmark --out ~/Desktop/framelight-benchmark.md")
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            } header: {
+                Text("Benchmark")
+            } footer: {
+                Text("Run the app binary (Framelight.app/Contents/MacOS/Framelight) with this flag in Terminal to measure speed and quality on your Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             if let device = controls.device {

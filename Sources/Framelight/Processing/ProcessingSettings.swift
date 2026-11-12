@@ -29,6 +29,31 @@ enum BackgroundMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum MeteringMode: String, Codable, CaseIterable, Identifiable {
+    case face = "Face"
+    case center = "Center"
+    case average = "Average"
+    var id: String { rawValue }
+}
+
+enum OutputAspect: String, Codable, CaseIterable, Identifiable {
+    case widescreen = "16:9"
+    case classic = "4:3"
+    case square = "1:1"
+    case vertical = "9:16"
+    var id: String { rawValue }
+
+    /// Width / height.
+    var ratio: CGFloat {
+        switch self {
+        case .widescreen: return 16.0 / 9.0
+        case .classic: return 4.0 / 3.0
+        case .square: return 1
+        case .vertical: return 9.0 / 16.0
+        }
+    }
+}
+
 enum OutputResolution: String, Codable, CaseIterable, Identifiable {
     case hd720 = "720p"
     case hd1080 = "1080p"
@@ -92,11 +117,65 @@ struct ProcessingSettings: Codable, Equatable {
 
     // Output
     var outputResolution: OutputResolution = .hd1080
+    var outputAspect: OutputAspect = .widescreen
+
+    // Metering & white point
+    var meteringMode: MeteringMode = .face
+    var whitePointGains: [Double] = [1, 1, 1]   // from "Pick White Point", linear-light gains
+
+    // Custom LUT (.cube) applied on top of the look
+    var customLUT: String?
+    var customLUTIntensity = 1.0
+
+    // Overlays & privacy
+    var nameTagEnabled = false
+    var nameTagTitle = ""
+    var nameTagSubtitle = ""
+    var privacy = false
+
+    // Control
+    var gestureControl = false
 
     // View
     var compare = false             // split before/after in the preview (never sent to other apps)
 
     static let `default` = ProcessingSettings()
+
+    /// Output pixel size: the resolution names the short side, the aspect sets the shape.
+    var outputSize: CGSize {
+        let short = outputResolution.size.height
+        let long = (short * max(outputAspect.ratio, 1 / outputAspect.ratio) / 2).rounded() * 2
+        return outputAspect.ratio >= 1 ? CGSize(width: long, height: short) : CGSize(width: short, height: long)
+    }
+
+    var hasWhitePoint: Bool { whitePointGains.count == 3 && whitePointGains.contains { abs($0 - 1) > 0.001 } }
+
+    /// Decodes saved settings, filling anything missing (e.g. settings added in a newer version)
+    /// with defaults instead of throwing the whole thing away.
+    static func tolerant(from data: Data) -> ProcessingSettings? {
+        guard let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return tolerant(fromObject: saved)
+    }
+
+    static func tolerant(fromObject saved: [String: Any]) -> ProcessingSettings? {
+        guard let defaultsData = try? JSONEncoder().encode(ProcessingSettings()),
+              let defaults = try? JSONSerialization.jsonObject(with: defaultsData) as? [String: Any] else { return nil }
+        let optionalKeys: Set<String> = ["backgroundImagePath", "customLUT"]
+
+        func decode(_ object: [String: Any]) -> ProcessingSettings? {
+            guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+            return try? JSONDecoder().decode(ProcessingSettings.self, from: data)
+        }
+
+        // Keep every saved value that is still valid on its own; anything else falls back to its default.
+        var merged = defaults
+        for (key, value) in saved where defaults[key] != nil || optionalKeys.contains(key) {
+            var single = defaults
+            single[key] = value
+            if decode(single) != nil { merged[key] = value }
+        }
+        return decode(merged)
+    }
 
     /// Kelvin offset shown in the UI for the warmth slider.
     var warmthKelvin: Int { Int((warmth * 15).rounded()) }

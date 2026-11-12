@@ -13,43 +13,45 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @AppStorage("sidebarTab") private var tab: SidebarTab = .camera
 
+    @State private var showInspector = true
+
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                toolbar
-                Divider()
-                previewArea
+        previewArea
+            .frame(minWidth: 560, minHeight: 420)
+            .ignoresSafeArea(edges: .bottom)
+            .toolbar { toolbarContent }
+            .inspector(isPresented: $showInspector) {
+                sidebar
+                    .inspectorColumnWidth(min: 320, ideal: 370, max: 480)
             }
-            .frame(minWidth: 560)
+    }
 
-            Divider()
-
-            VStack(spacing: 0) {
-                Picker("", selection: $tab) {
-                    ForEach(SidebarTab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(10)
-
-                Group {
-                    switch tab {
-                    case .camera: HardwarePanel(controls: model.controls)
-                    case .studio: StudioPanel()
-                    case .presets: PresetsPanel(store: model.presets)
-                    case .info: InfoPanel(controls: model.controls)
-                    }
-                }
-                .frame(maxHeight: .infinity)
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $tab) {
+                ForEach(SidebarTab.allCases) { Text($0.rawValue).tag($0) }
             }
-            .frame(width: 360)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(10)
+
+            Group {
+                switch tab {
+                case .camera: HardwarePanel(controls: model.controls)
+                case .studio: StudioPanel()
+                case .presets: PresetsPanel(store: model.presets)
+                case .info: InfoPanel(controls: model.controls)
+                }
+            }
+            .frame(maxHeight: .infinity)
         }
     }
 
     // MARK: Toolbar
 
-    private var toolbar: some View {
-        HStack(spacing: 10) {
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
             Picker("Camera", selection: Binding(
                 get: { model.camera.activeDevice?.uniqueID ?? "" },
                 set: { id in
@@ -62,7 +64,7 @@ struct ContentView: View {
                     Text(device.localizedName).tag(device.uniqueID)
                 }
             }
-            .frame(maxWidth: 240)
+            .help("Camera")
 
             Picker("Format", selection: Binding(
                 get: { model.camera.activeFormatID ?? "" },
@@ -72,40 +74,28 @@ struct ContentView: View {
                 if model.camera.activeFormatID == nil { Text("—").tag("") }
                 ForEach(model.camera.formats) { Text($0.label).tag($0.id) }
             }
-            .labelsHidden()
-            .frame(maxWidth: 260)
+            .help("Capture resolution, frame rate and codec")
+        }
 
-            Text(String(format: "%.0f fps", model.camera.measuredFPS))
-                .monospacedDigit()
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            if model.virtualCameraStatus == .streaming {
-                Label("Virtual Cam", systemImage: "dot.radiowaves.left.and.right")
-                    .font(.caption.bold())
-                    .foregroundStyle(.green)
-            }
-
-            Button {
-                model.settings.autoFraming.toggle()
-            } label: {
-                Image(systemName: model.settings.autoFraming ? "person.crop.square.filled.and.at.rectangle" : "person.crop.square")
+        ToolbarItemGroup(placement: .primaryAction) {
+            Toggle(isOn: $model.settings.autoFraming) {
+                Label("Auto Framing", systemImage: "person.crop.square.filled.and.at.rectangle")
             }
             .help("Auto Framing")
 
-            Button { model.snapshot() } label: { Image(systemName: "camera") }
+            Button { model.snapshot() } label: { Label("Take Photo", systemImage: "camera") }
                 .help("Take photo")
 
             Button { model.toggleRecording() } label: {
-                Image(systemName: model.isRecording ? "stop.circle.fill" : "record.circle")
-                    .foregroundStyle(model.isRecording ? .red : .primary)
+                Label(model.isRecording ? "Stop Recording" : "Record",
+                      systemImage: model.isRecording ? "stop.circle.fill" : "record.circle")
             }
+            .tint(model.isRecording ? .red : nil)
             .help(model.isRecording ? "Stop recording" : "Record video")
+
+            Button { showInspector.toggle() } label: { Label("Controls", systemImage: "sidebar.right") }
+                .help("Show or hide controls")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     // MARK: Preview
@@ -130,20 +120,14 @@ struct ContentView: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    if model.showFramingOverlay, model.settings.autoFraming, let stats = model.stats {
-                        Text(String(format: "Zoom %.2f×  ·  %ld face%@", stats.zoom, stats.facesDetected, stats.facesDetected == 1 ? "" : "s"))
-                            .font(.caption.monospacedDigit())
-                            .padding(6)
-                            .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                            .foregroundStyle(.white)
-                    }
+                    statusChips
                     Spacer()
                     if model.isRecording {
                         Label("REC", systemImage: "circle.fill")
                             .font(.caption.bold())
                             .foregroundStyle(.red)
-                            .padding(6)
-                            .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .glassEffect(.regular, in: Capsule())
                     }
                 }
                 Spacer()
@@ -154,8 +138,8 @@ struct ContentView: View {
                     Spacer()
                     if let toast = model.toast {
                         Text(toast)
-                            .padding(.horizontal, 12).padding(.vertical, 8)
-                            .background(.regularMaterial, in: Capsule())
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .glassEffect(.regular, in: Capsule())
                             .transition(.opacity)
                     }
                 }
@@ -174,6 +158,37 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: model.toast)
+    }
+
+    /// Live status pills over the video: frame rate, virtual camera, framing.
+    private var statusChips: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                Text(String(format: "%.0f fps", model.camera.measuredFPS))
+                    .monospacedDigit()
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .glassEffect(.regular, in: Capsule())
+                if model.virtualCameraStatus == .streaming {
+                    Label("Virtual Cam Live", systemImage: "dot.radiowaves.left.and.right")
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .glassEffect(.regular.tint(.green.opacity(0.35)), in: Capsule())
+                }
+                if model.settings.autoFraming {
+                    Group {
+                        if model.showFramingOverlay, let stats = model.stats {
+                            Text(String(format: "Auto Framing · %.2f× · %ld face%@", stats.zoom, stats.facesDetected,
+                                        stats.facesDetected == 1 ? "" : "s"))
+                                .monospacedDigit()
+                        } else {
+                            Label("Auto Framing", systemImage: "person.crop.square.filled.and.at.rectangle")
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .glassEffect(.regular, in: Capsule())
+                }
+            }
+            .font(.caption.weight(.semibold))
+        }
     }
 
     private var permissionView: some View {

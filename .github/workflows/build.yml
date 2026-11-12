@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -39,5 +39,5 @@ jobs:
 
       - name: UVC parser checks
         run: |
-          swiftc Sources/MacCam/UVC/UVCDescriptors.swift Sources/MacCam/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o parsercheck
+          swiftc -swift-version 5 Sources/MacCam/UVC/UVCDescriptors.swift Sources/MacCam/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o parsercheck
           ./parsercheck

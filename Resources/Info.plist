@@ -23,7 +23,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.video</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>26.0</string>
 	<key>NSCameraUsageDescription</key>
 	<string>MacCam shows and enhances your webcam's video.</string>
 	<key>NSHighResolutionCapable</key>

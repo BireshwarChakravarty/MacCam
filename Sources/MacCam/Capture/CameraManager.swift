@@ -93,12 +93,7 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     }
 
     func refreshDevices() {
-        var types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
-        if #available(macOS 14.0, *) {
-            types += [.external, .continuityCamera]
-        } else {
-            types.append(.externalUnknown)
-        }
+        let types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external, .continuityCamera]
         let discovered = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: .unspecified).devices
         // Never offer our own virtual camera as a source (it would feed back into itself).
         devices = discovered.filter { $0.uniqueID.uppercased() != VirtualCameraConfig.deviceUUID.uuidString.uppercased() }

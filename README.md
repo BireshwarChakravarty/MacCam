@@ -36,13 +36,14 @@ These settings are applied by the camera itself, so **they work in every app**, 
 Save all hardware and studio settings under a name, apply them in one click, and import or export them as JSON. Starter looks are included.
 
 ### Virtual camera
-"MacCam Virtual Camera" appears in Zoom, Google Meet, Teams, OBS, FaceTime and other apps, carrying everything from the Studio tab. Built with a Core Media I/O camera extension (macOS 13+).
+"MacCam Virtual Camera" appears in Zoom, Google Meet, Teams, OBS, FaceTime and other apps, carrying everything from the Studio tab. Built with a Core Media I/O camera extension.
 
 ### Menu bar
 MacCam keeps running in the menu bar when you close the window, with quick toggles for framing, blur, mirror, presets and the virtual camera.
 
 ## Requirements
-* macOS 13 Ventura or later, on Apple Silicon or Intel
+* **macOS 26 or later**, on Apple Silicon or Intel (it uses the macOS 26 Liquid Glass interface)
+* To build it yourself: Xcode 26 or later
 * A UVC webcam (virtually all USB webcams, including the Kreo Owl 4K Pro)
 
 ## Install
@@ -59,7 +60,7 @@ MacCam keeps running in the menu bar when you close the window, with quick toggl
 This build includes everything except the virtual camera (see Option C).
 
 ### Option B: build it yourself with SwiftPM
-Needs Xcode or the Command Line Tools.
+Needs Xcode 26 or the matching Command Line Tools.
 ```bash
 ./scripts/build-app.sh
 ```

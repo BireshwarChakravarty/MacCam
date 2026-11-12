@@ -131,8 +131,8 @@ struct HistogramView: View {
             }
         }
         .frame(width: 200, height: 70)
-        .padding(6)
-        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        .padding(8)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
         .allowsHitTesting(false)
     }
 }

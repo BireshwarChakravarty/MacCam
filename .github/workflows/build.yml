@@ -25,18 +25,6 @@ jobs:
           ls /tmp/AppIcon.iconset
           /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" dist/Framelight.app/Contents/Info.plist
 
-      - name: Benchmark (speed + quality vs. typical methods)
-        run: |
-          dist/Framelight.app/Contents/MacOS/Framelight --benchmark --out benchmark.md
-          cat benchmark.md >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: benchmark-report
-          path: benchmark.md
-          if-no-files-found: ignore
-
       - name: Package
         run: |
           cd dist
@@ -74,3 +62,15 @@ jobs:
             Sources/Framelight/Processing/LUTLibrary.swift Sources/Framelight/Processing/Gestures.swift \
             Sources/Framelight/Processing/ProcessingSettings.swift Tests/ColorCheck/main.swift -o colorcheck
           ./colorcheck
+
+      - name: Benchmark (speed + quality vs. typical methods)
+        run: |
+          dist/Framelight.app/Contents/MacOS/Framelight --benchmark --out benchmark.md
+          cat benchmark.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-report
+          path: benchmark.md
+          if-no-files-found: ignore

@@ -734,24 +734,23 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     /// Real optics keep sensor noise in out-of-focus areas; matching it hides the "pasted" look.
-    /// Standard film-grain compositing: a 50%-grey noise layer in soft-light mode (neutral grey = no change),
-    /// applied in perceptual space so the grain is even across tones.
-    func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.03) -> CIImage {
-        guard let noise = CIFilter.randomGenerator().outputImage else { return image }
-        let shifted = noise
-            // Whole-pixel offsets: crisp, independent grain every frame (fractional offsets would
-            // interpolate the noise, softening it and correlating consecutive frames).
-            .transformed(by: CGAffineTransform(translationX: CGFloat(Int.random(in: 0..<4096)), y: CGFloat(Int.random(in: 0..<4096))))
+    /// Film-grain compositing: a neutral-grey noise tile (known, zero-mean Gaussian noise generated once on the
+    /// CPU) in soft-light mode, in perceptual space. Neutral grey leaves the image unchanged, so brightness
+    /// doesn't shift; `amount` is the grain's standard deviation in 0–1 units at mid-tones.
+    func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.006) -> CIImage {
+        let tile = Self.grainTile
+        let tiled = tile.applyingFilter("CIAffineTile", parameters: [kCIInputTransformKey: NSValue(affineTransform: .identity)])
+            .transformed(by: CGAffineTransform(translationX: CGFloat(Int.random(in: 0..<256)), y: CGFloat(Int.random(in: 0..<256))))
             .cropped(to: extent)
-        // Grey noise around 0.5: soft light with 0.5 leaves the image unchanged.
+        // The tile holds 0.5 ± noise with σ = 1/16; scale it to the requested amount around 0.5.
+        let k = amount * 2 * 16                       // soft light turns a ±d blend offset into ≈ ±d/2 at mid-tones
         let m = CIFilter.colorMatrix()
-        m.inputImage = shifted
-        let k = amount * 2 / 3
-        m.rVector = CIVector(x: k, y: k, z: k, w: 0)
-        m.gVector = CIVector(x: k, y: k, z: k, w: 0)
-        m.bVector = CIVector(x: k, y: k, z: k, w: 0)
+        m.inputImage = tiled
+        m.rVector = CIVector(x: k, y: 0, z: 0, w: 0)
+        m.gVector = CIVector(x: 0, y: k, z: 0, w: 0)
+        m.bVector = CIVector(x: 0, y: 0, z: k, w: 0)
         m.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
-        m.biasVector = CIVector(x: 0.5 - amount, y: 0.5 - amount, z: 0.5 - amount, w: 1)
+        m.biasVector = CIVector(x: 0.5 - 0.5 * k, y: 0.5 - 0.5 * k, z: 0.5 - 0.5 * k, w: 1)
         guard let grain = m.outputImage?.cropped(to: extent) else { return image }
         let blend = CIFilter.softLightBlendMode()
         blend.inputImage = grain
@@ -759,6 +758,27 @@ final class FrameProcessor: @unchecked Sendable {
         guard let out = blend.outputImage else { return image }
         return out.applyingFilter("CISRGBToneCurveToLinear").cropped(to: extent)
     }
+
+    /// 256×256 tile of monochrome Gaussian noise around 0.5 (σ = 1/16), stored as raw working-space values.
+    private static let grainTile: CIImage = {
+        let side = 256
+        var values = [Float](repeating: 0.5, count: side * side * 4)
+        var seed: UInt64 = 0x6A09E667F3BCC909
+        func uniform() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Double(seed >> 11) / Double(1 << 53)
+        }
+        for i in 0..<(side * side) {
+            // Box–Muller
+            let u1 = max(uniform(), 1e-12), u2 = uniform()
+            let n = sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+            let v = Float(0.5 + n / 16)
+            values[i * 4] = v; values[i * 4 + 1] = v; values[i * 4 + 2] = v; values[i * 4 + 3] = 1
+        }
+        let data = values.withUnsafeBufferPointer { Data(buffer: $0) }
+        // colorSpace nil: values are used as-is in the working space (no colour conversion).
+        return CIImage(bitmapData: data, bytesPerRow: side * 16, size: CGSize(width: side, height: side), format: .RGBAf, colorSpace: nil)
+    }()
 
     private func loadBackgroundImage(path: String?) -> CIImage? {
         guard let path else { return nil }

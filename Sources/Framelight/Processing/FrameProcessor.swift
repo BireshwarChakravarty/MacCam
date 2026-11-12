@@ -457,10 +457,10 @@ final class FrameProcessor: @unchecked Sendable {
             background = addGrain(haloFreeLensBlur(image, matte: matte, radius: radius), extent: ext)
         case .studioLight:
             // Like a key light on you and a dimmer room: subject up a little, background down.
-            subject = image.applyingFilter("CIExposureAdjust", [kCIInputEVKey: 0.22 * k])
+            subject = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 0.22 * k])
             background = image
-                .applyingFilter("CIExposureAdjust", [kCIInputEVKey: -0.95 * k])
-                .applyingFilter("CIColorControls", [kCIInputSaturationKey: 1 - 0.2 * k])
+                .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -0.95 * k])
+                .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1 - 0.2 * k])
         case .color:
             let flat = CIImage(color: CIColor(cgColor: NSColor(hex: s.backgroundColorHex).cgColor)).cropped(to: ext)
             // A soft falloff reads as a lit backdrop rather than a flat fill.

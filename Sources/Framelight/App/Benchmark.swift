@@ -195,16 +195,49 @@ enum Benchmark {
         log()
         let size = CGSize(width: 960, height: 540)
         let rect = CGRect(origin: .zero, size: size)
-        let clean = texturedScene(size: size)
         let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        let clean = texturedScene(size: size)
+        let w = Int(size.width), h = Int(size.height)
+
+        var flipRows = false
+        /// 8-bit sRGB pixels of an image, in the row order CIImage(bitmapData:) expects.
+        func pixels(_ image: CIImage) -> [UInt8] {
+            var data = [UInt8](repeating: 0, count: w * h * 4)
+            data.withUnsafeMutableBytes { ptr in
+                context.render(image, toBitmap: ptr.baseAddress!, rowBytes: w * 4, bounds: rect, format: .RGBA8, colorSpace: srgb)
+            }
+            guard flipRows else { return data }
+            var flipped = data
+            for y in 0..<h {
+                flipped.replaceSubrange((y * w * 4)..<((y + 1) * w * 4), with: data[((h - 1 - y) * w * 4)..<((h - y) * w * 4)])
+            }
+            return flipped
+        }
+        /// Independent, roughly Gaussian sensor noise per frame, added to 8-bit values like a camera's.
+        var seed: UInt64 = 0x5EED
+        func noisy(_ base: [UInt8], sigma: Double) -> CIImage {
+            var out = base
+            for i in stride(from: 0, to: out.count, by: 4) {
+                for c in 0..<3 {
+                    var sum = 0.0
+                    for _ in 0..<4 {
+                        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                        sum += Double(seed >> 11) / Double(1 << 53)
+                    }
+                    let n = (sum - 2) * sigma * 1.732          // sum of 4 uniforms: σ = sqrt(4/12) = 0.577
+                    out[i + c] = UInt8(clamping: Int((Double(out[i + c]) + n).rounded()))
+                }
+            }
+            return CIImage(bitmapData: Data(out), bytesPerRow: w * 4, size: size, format: .RGBA8, colorSpace: srgb)
+        }
 
         /// Runs 24 frames through a temporal filter, feeding each output back as the next "previous".
-        func run(noise: CGFloat, strength: Double, adaptive: Bool, scene: (Int) -> CIImage) -> CIImage {
+        func run(sigma: Double, strength: Double, adaptive: Bool, scene: (Int) -> [UInt8]) -> [Float] {
             var pool = BufferPool()
             var previous: CIImage?
-            var out = scene(0)
+            var out = CIImage.empty()
             for f in 0..<24 {
-                let current = processor.addGrain(scene(f), extent: rect, amount: noise)   // fresh sensor-like noise each frame
+                let current = noisy(scene(f), sigma: sigma)
                 if let previous {
                     out = adaptive
                         ? processor.temporalDenoise(current: current, previous: previous, strength: strength)
@@ -219,44 +252,50 @@ enum Benchmark {
                 }
                 previous = out
             }
-            return out
+            return read(out, context: context, rect: rect, colorSpace: srgb)
         }
 
         let truth = read(clean, context: context, rect: rect, colorSpace: srgb)
+        // Core Image's bitmap writer and reader may disagree on row order; detect it with a noiseless round trip.
+        if rms(read(noisy(pixels(clean), sigma: 0), context: context, rect: rect, colorSpace: srgb), truth) > 0.01 {
+            flipRows = true
+        }
+        let cleanPixels = pixels(clean)
+        if rms(read(noisy(cleanPixels, sigma: 0), context: context, rect: rect, colorSpace: srgb), truth) > 0.01 {
+            failures.append("Noise test images don't round-trip; noise results are unreliable")
+        }
         var diagnostics: [String] = []
         log("| Scene | Noise in (0–255 RMS) | Removed at default (35%) | Removed at maximum |")
         log("|---|---:|---:|---:|")
         var typicalGain = 0.0
-        for (name, amount) in [("Typical room", CGFloat(0.02)), ("Dim room (high gain)", CGFloat(0.05))] {
-            let raw = read(processor.addGrain(clean, extent: rect, amount: amount), context: context, rect: rect, colorSpace: srgb)
-            let rawRMS = rms(raw, truth)
-            if rawRMS < 0.002 { failures.append(String(format: "Test noise wasn't applied (RMS %.4f)", rawRMS)) }
-            let def = rms(read(run(noise: amount, strength: 0.35, adaptive: true) { _ in clean }, context: context, rect: rect, colorSpace: srgb), truth)
-            let maxRMS = rms(read(run(noise: amount, strength: 1.0, adaptive: true) { _ in clean }, context: context, rect: rect, colorSpace: srgb), truth)
-            let gDef = 20 * log10(rawRMS / Swift.max(def, 1e-9)), gMax = 20 * log10(rawRMS / Swift.max(maxRMS, 1e-9))
-            if amount < 0.03 { typicalGain = gDef }
-            log(String(format: "| %@ | %.1f | %.1f dB | %.1f dB |", name, rawRMS * 255, gDef, gMax))
+        for (name, sigma) in [("Typical room", 4.0), ("Dim room (high gain)", 10.0)] {
+            let rawRMS = rms(read(noisy(cleanPixels, sigma: sigma), context: context, rect: rect, colorSpace: srgb), truth)
+            let def = rms(run(sigma: sigma, strength: 0.35, adaptive: true) { _ in cleanPixels }, truth)
             diagnostics.append(String(format: "%@: mean frame difference %.4f, noise floor %.4f", name,
                                       processor.lastMeanDifference, processor.currentNoiseFloor))
+            let maxRMS = rms(run(sigma: sigma, strength: 1.0, adaptive: true) { _ in cleanPixels }, truth)
+            let gDef = 20 * log10(rawRMS / Swift.max(def, 1e-9)), gMax = 20 * log10(rawRMS / Swift.max(maxRMS, 1e-9))
+            if sigma < 5 { typicalGain = gDef }
+            log(String(format: "| %@ | %.1f | %.1f dB | %.1f dB |", name, rawRMS * 255, gDef, gMax))
         }
         log()
-
         log("Noise-floor estimate (perceptual units): " + diagnostics.joined(separator: "; "))
         log()
 
         // Moving object: the dark trail left behind (a bias, so leftover noise averages out).
         let speed: CGFloat = 14
-        func moving(_ f: Int) -> CIImage {
+        func movingImage(_ f: Int) -> CIImage {
             let square = CIImage(color: CIColor(red: 0.05, green: 0.05, blue: 0.08))
                 .cropped(to: CGRect(x: 120 + CGFloat(f) * speed, y: 200, width: 140, height: 140))
             return square.composited(over: clean).cropped(to: rect)
         }
-        let movingTruth = read(moving(23), context: context, rect: rect, colorSpace: srgb)
-        let ours = read(run(noise: 0.02, strength: 1.0, adaptive: true, scene: moving), context: context, rect: rect, colorSpace: srgb)
-        let simple = read(run(noise: 0.02, strength: 1.0, adaptive: false, scene: moving), context: context, rect: rect, colorSpace: srgb)
+        let movingFrames = (0..<24).map { pixels(movingImage($0)) }
+        let movingTruth = read(movingImage(23), context: context, rect: rect, colorSpace: srgb)
+        let ours = run(sigma: 4, strength: 1.0, adaptive: true) { movingFrames[$0] }
+        let simple = run(sigma: 4, strength: 1.0, adaptive: false) { movingFrames[$0] }
         let x0 = Int(120 + 23 * speed - 6 * speed), x1 = Int(120 + 23 * speed)
-        let ghostOurs = trailDarkening(ours, movingTruth, width: Int(size.width), x: x0..<x1, y: 200..<340)
-        let ghostSimple = trailDarkening(simple, movingTruth, width: Int(size.width), x: x0..<x1, y: 200..<340)
+        let ghostOurs = trailDarkening(ours, movingTruth, width: w, x: x0..<x1, y: 200..<340)
+        let ghostSimple = trailDarkening(simple, movingTruth, width: w, x: x0..<x1, y: 200..<340)
         log("| Ghost trail behind a moving dark object (0–255, lower is better) | Result |")
         log("|---|---:|")
         log(String(format: "| Framelight motion-adaptive, maximum strength | %.2f |", ghostOurs * 255))
@@ -264,6 +303,20 @@ enum Benchmark {
         log()
         if typicalGain < 2.5 { failures.append(String(format: "Noise reduction only %.1f dB in a typical room (want ≥ 2.5 dB)", typicalGain)) }
         if ghostOurs > ghostSimple * 0.5 { failures.append(String(format: "Ghosting %.2f is not well below simple averaging %.2f", ghostOurs * 255, ghostSimple * 255)) }
+
+        // The background-blur grain: it must add fine noise, not shift brightness.
+        let grey = CIImage(color: CIColor(red: 0.45, green: 0.45, blue: 0.45)).cropped(to: rect)
+        let greyPx = read(grey, context: context, rect: rect, colorSpace: srgb)
+        let grained = read(processor.addGrain(grey, extent: rect), context: context, rect: rect, colorSpace: srgb)
+        var shift = 0.0, sq = 0.0, n = 0.0
+        for i in stride(from: 0, to: grained.count, by: 4) {
+            for c in 0..<3 { let d = Double(grained[i + c] - greyPx[i + c]); shift += d; sq += d * d; n += 1 }
+        }
+        let meanShift = shift / n * 255, grainRMS = sqrt(max(0, sq / n - (shift / n) * (shift / n))) * 255
+        log(String(format: "Background grain on mid-grey: brightness shift %.2f, grain strength %.2f (0–255).", meanShift, grainRMS))
+        log()
+        if abs(meanShift) > 1.0 { failures.append(String(format: "Grain shifts brightness by %.2f levels", meanShift)) }
+        if grainRMS < 0.4 || grainRMS > 4.0 { failures.append(String(format: "Grain strength %.2f outside 0.4–4 levels", grainRMS)) }
     }
 
     /// How much darker than the truth the area behind a moving dark object is (the ghost).

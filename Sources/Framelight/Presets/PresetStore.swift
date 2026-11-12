@@ -16,7 +16,7 @@ final class PresetStore: ObservableObject {
 
     private let url: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MacCam", isDirectory: true)
+            .appendingPathComponent("Framelight", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base.appendingPathComponent("presets.json")
     }()

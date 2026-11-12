@@ -3,8 +3,8 @@ import CoreMediaIO
 import CoreMedia
 import CoreVideo
 
-/// Feeds processed frames into the MacCam camera extension's sink stream.
-/// Zoom, Meet, Teams, OBS etc. then see them on "MacCam Virtual Camera".
+/// Feeds processed frames into the Framelight camera extension's sink stream.
+/// Zoom, Meet, Teams, OBS etc. then see them on "Framelight Camera".
 final class VirtualCameraSink: @unchecked Sendable {
     enum Status: Equatable {
         case off

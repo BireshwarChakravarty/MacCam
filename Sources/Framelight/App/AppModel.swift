@@ -225,11 +225,11 @@ final class AppModel: ObservableObject {
             flash("No frame to capture yet")
             return
         }
-        let url = Self.captureFolder().appendingPathComponent("MacCam \(Self.timestamp()).png")
+        let url = Self.captureFolder().appendingPathComponent("Framelight \(Self.timestamp()).png")
         let rep = NSBitmapImageRep(cgImage: cg)
         if let data = rep.representation(using: .png, properties: [:]) {
             try? data.write(to: url)
-            flash("Saved photo to Pictures/MacCam")
+            flash("Saved photo to Pictures/Framelight")
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
     }
@@ -240,13 +240,13 @@ final class AppModel: ObservableObject {
                 DispatchQueue.main.async {
                     self?.isRecording = false
                     if let url {
-                        self?.flash("Saved video to Movies/MacCam")
+                        self?.flash("Saved video to Movies/Framelight")
                         NSWorkspace.shared.activateFileViewerSelecting([url])
                     }
                 }
             }
         } else {
-            let url = Self.movieFolder().appendingPathComponent("MacCam \(Self.timestamp()).mov")
+            let url = Self.movieFolder().appendingPathComponent("Framelight \(Self.timestamp()).mov")
             do {
                 try recorder.start(url: url, size: settings.outputResolution.size, hevc: recordHEVC)
                 isRecording = true
@@ -289,7 +289,7 @@ final class AppModel: ObservableObject {
     }
 
     private static func folder(_ dir: FileManager.SearchPathDirectory) -> URL {
-        let url = FileManager.default.urls(for: dir, in: .userDomainMask)[0].appendingPathComponent("MacCam", isDirectory: true)
+        let url = FileManager.default.urls(for: dir, in: .userDomainMask)[0].appendingPathComponent("Framelight", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

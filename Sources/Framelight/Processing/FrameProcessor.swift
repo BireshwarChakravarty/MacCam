@@ -48,7 +48,7 @@ final class FrameProcessor: @unchecked Sendable {
     init() {
         metalDevice = MTLCreateSystemDefaultDevice()
         if let metalDevice {
-            ciContext = CIContext(mtlDevice: metalDevice, options: [.cacheIntermediates: false, .name: "MacCam"])
+            ciContext = CIContext(mtlDevice: metalDevice, options: [.cacheIntermediates: false, .name: "Framelight"])
         } else {
             ciContext = CIContext(options: [.cacheIntermediates: false])
         }

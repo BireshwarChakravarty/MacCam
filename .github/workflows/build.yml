@@ -16,28 +16,35 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Build MacCam.app (SwiftPM, universal)
+      - name: Build Framelight.app (SwiftPM, universal)
         run: UNIVERSAL=1 ./scripts/build-app.sh
+
+      - name: Verify app icon
+        run: |
+          iconutil -c iconset dist/Framelight.app/Contents/Resources/AppIcon.icns -o /tmp/AppIcon.iconset
+          ls /tmp/AppIcon.iconset
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" dist/Framelight.app/Contents/Info.plist
 
       - name: Package
         run: |
           cd dist
-          ditto -c -k --keepParent MacCam.app MacCam.zip
+          ditto -c -k --keepParent Framelight.app Framelight.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MacCam-app
-          path: dist/MacCam.zip
+          name: Framelight-app
+          path: dist/Framelight.zip
 
       - name: Build Xcode project incl. virtual camera extension (unsigned)
         run: |
           brew install xcodegen
           xcodegen generate
-          xcodebuild -project MacCam.xcodeproj -scheme MacCam -configuration Release \
+          xcodebuild -project Framelight.xcodeproj -scheme Framelight -configuration Release \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
-          ls build/Build/Products/Release/MacCam.app/Contents/Library/SystemExtensions
+          ls build/Build/Products/Release/Framelight.app/Contents/Library/SystemExtensions
+          ls build/Build/Products/Release/Framelight.app/Contents/Resources
 
       - name: UVC parser checks
         run: |
-          swiftc -swift-version 5 Sources/MacCam/UVC/UVCDescriptors.swift Sources/MacCam/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o parsercheck
+          swiftc -swift-version 5 Sources/Framelight/UVC/UVCDescriptors.swift Sources/Framelight/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o parsercheck
           ./parsercheck

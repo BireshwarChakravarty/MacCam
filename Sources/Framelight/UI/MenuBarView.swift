@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Quick controls from the menu bar, so MacCam can run in the background during calls.
+/// Quick controls from the menu bar, so Framelight can run in the background during calls.
 struct MenuBarView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -36,11 +36,11 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Open MacCam") {
+        Button("Open Framelight") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
-        Button("Quit MacCam") { NSApp.terminate(nil) }
+        Button("Quit Framelight") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }

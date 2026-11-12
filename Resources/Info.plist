@@ -5,15 +5,19 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>MacCam</string>
+	<string>Framelight</string>
 	<key>CFBundleExecutable</key>
-	<string>MacCam</string>
+	<string>Framelight</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>MacCam</string>
+	<string>Framelight</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -25,7 +29,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>NSCameraUsageDescription</key>
-	<string>MacCam shows and enhances your webcam's video.</string>
+	<string>Framelight shows and enhances your webcam's video.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

@@ -12,8 +12,8 @@ final class VisionAnalyzer: @unchecked Sendable {
         var time: CFTimeInterval
     }
 
-    private let detectQueue = DispatchQueue(label: "maccam.vision.detect", qos: .userInitiated)
-    private let segmentQueue = DispatchQueue(label: "maccam.vision.segment", qos: .userInitiated)
+    private let detectQueue = DispatchQueue(label: "framelight.vision.detect", qos: .userInitiated)
+    private let segmentQueue = DispatchQueue(label: "framelight.vision.segment", qos: .userInitiated)
     private let lock = NSLock()
 
     private var detecting = false

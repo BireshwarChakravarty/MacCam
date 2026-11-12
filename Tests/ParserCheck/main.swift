@@ -1,5 +1,5 @@
 // Standalone check for the IOKit-free UVC logic. Runs on macOS or Linux:
-//   swiftc Sources/MacCam/UVC/UVCDescriptors.swift Sources/MacCam/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o /tmp/parsercheck && /tmp/parsercheck
+//   swiftc Sources/Framelight/UVC/UVCDescriptors.swift Sources/Framelight/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o /tmp/parsercheck && /tmp/parsercheck
 import Foundation
 
 var failures = 0

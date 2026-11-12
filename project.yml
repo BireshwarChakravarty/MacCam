@@ -1,14 +1,14 @@
-# Generates MacCam.xcodeproj with the virtual camera (Core Media I/O system extension).
-#   brew install xcodegen && xcodegen generate && open MacCam.xcodeproj
+# Generates Framelight.xcodeproj with the virtual camera (Core Media I/O system extension).
+#   brew install xcodegen && xcodegen generate && open Framelight.xcodeproj
 # Set DEVELOPMENT_TEAM below (or in Xcode → Signing & Capabilities) to your Apple Developer Team ID.
-name: MacCam
+name: Framelight
 options:
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:
-    APP_BUNDLE_ID: com.maccam.app
+    APP_BUNDLE_ID: com.framelight.app
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
@@ -17,30 +17,32 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     MACOSX_DEPLOYMENT_TARGET: "26.0"
 targets:
-  MacCam:
+  Framelight:
     type: application
     platform: macOS
     sources:
-      - path: Sources/MacCam
+      - path: Sources/Framelight
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
     settings:
       base:
-        PRODUCT_NAME: MacCam
+        PRODUCT_NAME: Framelight
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
         INFOPLIST_FILE: Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Resources/MacCam.entitlements
+        CODE_SIGN_ENTITLEMENTS: Resources/Framelight.entitlements
     dependencies:
-      - target: MacCamCameraExtension
+      - target: FramelightCameraExtension
         embed: true
         codeSign: true
       - sdk: SystemExtensions.framework
       - sdk: CoreMediaIO.framework
       - sdk: IOKit.framework
-  MacCamCameraExtension:
+  FramelightCameraExtension:
     type: system-extension
     platform: macOS
     sources:
       - path: CameraExtension
-      - path: Sources/MacCam/Shared/VirtualCameraConfig.swift
+      - path: Sources/Framelight/Shared/VirtualCameraConfig.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).CameraExtension
@@ -51,11 +53,11 @@ targets:
     dependencies:
       - sdk: CoreMediaIO.framework
 schemes:
-  MacCam:
+  Framelight:
     build:
       targets:
-        MacCam: all
-        MacCamCameraExtension: all
+        Framelight: all
+        FramelightCameraExtension: all
     run:
       config: Debug
     archive:

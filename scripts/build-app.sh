@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds dist/MacCam.app with SwiftPM (no Xcode project needed).
+# Builds dist/Framelight.app with SwiftPM (no Xcode project needed).
 # This build has every feature except the virtual camera, which needs the
 # Xcode project + an Apple Developer signing identity (see README).
 #
@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="${BUNDLE_ID:-com.maccam.app}"
+BUNDLE_ID="${BUNDLE_ID:-com.framelight.app}"
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 
@@ -21,10 +21,11 @@ echo "▸ Building (swift build ${ARGS[*]})"
 swift build "${ARGS[@]}"
 BIN_DIR="$(swift build "${ARGS[@]}" --show-bin-path)"
 
-APP="dist/MacCam.app"
+APP="dist/Framelight.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/MacCam" "$APP/Contents/MacOS/MacCam"
+cp "$BIN_DIR/Framelight" "$APP/Contents/MacOS/Framelight"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 sed -e 's/[$](PRODUCT_BUNDLE_IDENTIFIER)/'"$BUNDLE_ID"'/' \
     -e 's/[$](MARKETING_VERSION)/'"$VERSION"'/' \
@@ -33,7 +34,7 @@ sed -e 's/[$](PRODUCT_BUNDLE_IDENTIFIER)/'"$BUNDLE_ID"'/' \
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "▸ Signing (ad-hoc)"
-codesign --force --options runtime --entitlements Resources/MacCam-adhoc.entitlements --sign - "$APP"
+codesign --force --options runtime --entitlements Resources/Framelight-adhoc.entitlements --sign - "$APP"
 
 echo "✓ Built $APP"
 echo "  Run it:  open $APP"

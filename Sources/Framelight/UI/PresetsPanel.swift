@@ -71,7 +71,7 @@ struct PresetsPanel: View {
     private func export(_ preset: Preset) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "\(preset.name).maccam.json"
+        panel.nameFieldStringValue = "\(preset.name).framelight.json"
         if panel.runModal() == .OK, let url = panel.url {
             try? store.exportJSON(preset, to: url)
         }

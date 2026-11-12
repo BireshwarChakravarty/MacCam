@@ -106,8 +106,10 @@ struct ContentView: View {
             if model.camera.authorization == .denied || model.camera.authorization == .restricted {
                 permissionView
             } else if model.camera.devices.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "web.camera").font(.system(size: 40))
+                VStack(spacing: 10) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 96, height: 96)
                     Text("Plug in your webcam").font(.title3)
                 }
                 .foregroundStyle(.secondary)
@@ -194,7 +196,7 @@ struct ContentView: View {
     private var permissionView: some View {
         VStack(spacing: 10) {
             Image(systemName: "video.slash").font(.system(size: 40))
-            Text("MacCam needs camera access").font(.title3)
+            Text("Framelight needs camera access").font(.title3)
             Button("Open Privacy Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!)
             }

@@ -40,7 +40,7 @@ final class ExtensionInstaller: NSObject, ObservableObject, OSSystemExtensionReq
 
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
         DispatchQueue.main.async {
-            self.message = "Approve MacCam in System Settings → Privacy & Security (or General → Login Items & Extensions → Camera Extensions)."
+            self.message = "Approve Framelight in System Settings → Privacy & Security (or General → Login Items & Extensions → Camera Extensions)."
         }
     }
 

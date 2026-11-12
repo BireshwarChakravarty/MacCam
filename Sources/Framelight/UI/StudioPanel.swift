@@ -172,7 +172,7 @@ struct StudioPanel: View {
         } header: {
             Label("Virtual Camera", systemImage: "video.badge.waveform")
         } footer: {
-            Text("Pick “\(VirtualCameraConfig.deviceName)” in Zoom, Google Meet, Teams, OBS or FaceTime to get auto framing, background and colour effects there. Keep MacCam running.")
+            Text("Pick “\(VirtualCameraConfig.deviceName)” in Zoom, Google Meet, Teams, OBS or FaceTime to get auto framing, background and colour effects there. Keep Framelight running.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

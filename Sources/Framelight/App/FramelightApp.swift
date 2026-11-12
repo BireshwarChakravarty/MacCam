@@ -13,13 +13,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct MacCamApp: App {
+struct FramelightApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
     @State private var started = false
 
     var body: some Scene {
-        Window("MacCam", id: "main") {
+        Window("Framelight", id: "main") {
             ContentView()
                 .environmentObject(model)
                 .frame(minWidth: 960, minHeight: 600)
@@ -50,7 +50,7 @@ struct MacCamApp: App {
             }
         }
 
-        MenuBarExtra("MacCam", systemImage: "web.camera") {
+        MenuBarExtra("Framelight", systemImage: "camera.viewfinder") {
             MenuBarView()
                 .environmentObject(model)
         }

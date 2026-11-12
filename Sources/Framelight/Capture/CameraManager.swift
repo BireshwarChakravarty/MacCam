@@ -52,8 +52,8 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     @Published private(set) var measuredFPS: Double = 0
 
     let session = AVCaptureSession()
-    private let sessionQueue = DispatchQueue(label: "maccam.session")
-    private let videoQueue = DispatchQueue(label: "maccam.video", qos: .userInteractive)
+    private let sessionQueue = DispatchQueue(label: "framelight.session")
+    private let videoQueue = DispatchQueue(label: "framelight.video", qos: .userInteractive)
     private let output = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
     private var observers: [NSObjectProtocol] = []

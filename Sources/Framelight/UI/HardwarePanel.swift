@@ -31,7 +31,7 @@ struct HardwarePanel: View {
 
                 Section {
                     Toggle("Restore my settings when the camera reconnects", isOn: $model.autoRestoreOnConnect)
-                        .help("Most webcams forget their settings when unplugged or when the Mac sleeps. MacCam re-applies them.")
+                        .help("Most webcams forget their settings when unplugged or when the Mac sleeps. Framelight re-applies them.")
                     HStack {
                         Button("Reset All to Defaults") { controls.resetToDefaults() }
                         Spacer()
@@ -43,7 +43,7 @@ struct HardwarePanel: View {
                             .font(.caption)
                     }
                 } footer: {
-                    Text("These settings live inside the camera itself, so they also apply in Zoom, Meet, OBS and every other app, even when MacCam's virtual camera isn't used.")
+                    Text("These settings live inside the camera itself, so they also apply in Zoom, Meet, OBS and every other app, even when Framelight's virtual camera isn't used.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -56,7 +56,7 @@ struct HardwarePanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("No hardware controls found", systemImage: "cable.connector.slash")
                 .font(.headline)
-            Text("MacCam talks to USB (UVC) webcams directly. Built-in FaceTime and Continuity cameras don't expose these controls, but the Studio tab still works for them.")
+            Text("Framelight talks to USB (UVC) webcams directly. Built-in FaceTime and Continuity cameras don't expose these controls, but the Studio tab still works for them.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Button("Scan USB Again") { Task { await model.reloadControls() } }

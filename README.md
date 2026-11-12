@@ -1,13 +1,15 @@
-# MacCam
+<p align="center"><img src="Design/AppIcon/AppIcon-1024.png" width="160" alt="Framelight app icon"></p>
 
-**Full control of your USB webcam on macOS.** It was built for the Kreo Owl 4K Pro and works with any UVC webcam.
+<h1 align="center">Framelight</h1>
 
-macOS has no settings panel for USB webcams, so cameras like the Kreo Owl 4K Pro stay on whatever automatic settings they boot with. MacCam talks to the camera directly over USB (the UVC protocol) to unlock every control the hardware has. On top of that it adds a GPU "studio" pipeline: Center Stage-style auto framing, background blur, colour grading, and a virtual camera for Zoom, Meet, Teams and OBS.
+<p align="center"><b>Every control your webcam has, plus a studio.</b><br>For macOS 26. Built for the Kreo Owl 4K Pro, works with any USB (UVC) webcam.</p>
+
+macOS has no settings panel for USB webcams, so cameras like the Kreo Owl 4K Pro stay on whatever automatic settings they boot with. Framelight talks to the camera directly over USB (the UVC protocol) to unlock every control the hardware has. On top of that it adds a GPU studio pipeline: Center Stage-style auto framing, background blur, colour grading, and a virtual camera ("Framelight Camera") for Zoom, Meet, Teams and OBS.
 
 ## Features
 
 ### Camera tab: hardware controls (inside the camera)
-These settings are applied by the camera itself, so **they work in every app**, including when you don't use MacCam's virtual camera.
+These settings are applied by the camera itself, so **they work in every app**, including when you don't use Framelight's virtual camera.
 
 | Group | Controls (only the ones your camera supports are shown) |
 |---|---|
@@ -19,7 +21,7 @@ These settings are applied by the camera itself, so **they work in every app**, 
 | Advanced | **Anti-flicker 50/60 Hz** (use 50 Hz in India/Europe/Asia to stop LED banding), Privacy shutter |
 
 * Live values: while a setting is on auto (for example auto white balance), the slider shows what the camera is choosing.
-* **Settings survive replugging.** Most webcams forget their settings on power loss. MacCam re-applies them when the camera reconnects.
+* **Settings survive replugging.** Most webcams forget their settings on power loss. Framelight re-applies them when the camera reconnects.
 * Reset any control (or all of them) to the camera's factory default.
 
 ### Studio tab: software pipeline (GPU, Core Image + Vision)
@@ -36,10 +38,10 @@ These settings are applied by the camera itself, so **they work in every app**, 
 Save all hardware and studio settings under a name, apply them in one click, and import or export them as JSON. Starter looks are included.
 
 ### Virtual camera
-"MacCam Virtual Camera" appears in Zoom, Google Meet, Teams, OBS, FaceTime and other apps, carrying everything from the Studio tab. Built with a Core Media I/O camera extension.
+"Framelight Camera" appears in Zoom, Google Meet, Teams, OBS, FaceTime and other apps, carrying everything from the Studio tab. Built with a Core Media I/O camera extension.
 
 ### Menu bar
-MacCam keeps running in the menu bar when you close the window, with quick toggles for framing, blur, mirror, presets and the virtual camera.
+Framelight keeps running in the menu bar when you close the window, with quick toggles for framing, blur, mirror, presets and the virtual camera.
 
 ## Requirements
 * **macOS 26 or later**, on Apple Silicon or Intel (it uses the macOS 26 Liquid Glass interface)
@@ -49,11 +51,11 @@ MacCam keeps running in the menu bar when you close the window, with quick toggl
 ## Install
 
 ### Option A: download the build from CI (no Xcode needed)
-1. Open the repository's **Actions** tab → latest **Build** run → download **MacCam-app**.
-2. Unzip it and move `MacCam.app` to `/Applications`.
+1. Open the repository's **Actions** tab → latest **Build** run → download **Framelight-app**.
+2. Unzip it and move `Framelight.app` to `/Applications`.
 3. The build isn't notarized, so clear the quarantine flag once:
    ```bash
-   xattr -dr com.apple.quarantine /Applications/MacCam.app
+   xattr -dr com.apple.quarantine /Applications/Framelight.app
    ```
 4. Open it and allow camera access.
 
@@ -65,7 +67,7 @@ Needs Xcode 26 or the matching Command Line Tools.
 ./scripts/build-app.sh
 ```
 ```bash
-open dist/MacCam.app
+open dist/Framelight.app
 ```
 
 ### Option C: full build with the virtual camera (Xcode)
@@ -74,12 +76,12 @@ macOS only loads camera extensions signed by a registered developer, so you need
 brew install xcodegen
 ```
 ```bash
-xcodegen generate && open MacCam.xcodeproj
+xcodegen generate && open Framelight.xcodeproj
 ```
 1. In `project.yml` (or Xcode → Signing & Capabilities for both targets), set your `DEVELOPMENT_TEAM`. You can also change `APP_BUNDLE_ID`.
-2. Build the **MacCam** scheme, then copy the built `MacCam.app` to **/Applications**. System extensions only activate from there.
-3. In MacCam go to **Studio → Virtual Camera → Install Virtual Camera**, then approve it in System Settings → General → Login Items & Extensions → Camera Extensions (or Privacy & Security).
-4. Turn on **Send to Virtual Camera** and choose "MacCam Virtual Camera" in your meeting app.
+2. Build the **Framelight** scheme, then copy the built `Framelight.app` to **/Applications**. System extensions only activate from there.
+3. In Framelight go to **Studio → Virtual Camera → Install Virtual Camera**, then approve it in System Settings → General → Login Items & Extensions → Camera Extensions (or Privacy & Security).
+4. Turn on **Send to Virtual Camera** and choose "Framelight Camera" in your meeting app.
 
 ## Tips for the Kreo Owl 4K Pro
 * Choose the **3840×2160 MJPEG** format in the toolbar. It gives auto framing the most pixels to crop from.
@@ -99,15 +101,16 @@ USB webcam ──UVC control requests (IOKit)──▶ hardware settings (Camera
 
 | Path | What |
 |---|---|
-| `Sources/MacCam/UVC/` | USB descriptor parsing, UVC control catalogue, IOKit control transfers, control store |
-| `Sources/MacCam/Capture/` | AVCaptureSession, device and format selection |
-| `Sources/MacCam/Processing/` | Frame processor, auto framer, Vision analyzer |
-| `Sources/MacCam/Output/` | Recorder, virtual camera sink, system-extension installer |
-| `Sources/MacCam/UI/` | SwiftUI interface |
+| `Sources/Framelight/UVC/` | USB descriptor parsing, UVC control catalogue, IOKit control transfers, control store |
+| `Sources/Framelight/Capture/` | AVCaptureSession, device and format selection |
+| `Sources/Framelight/Processing/` | Frame processor, auto framer, Vision analyzer |
+| `Sources/Framelight/Output/` | Recorder, virtual camera sink, system-extension installer |
+| `Sources/Framelight/UI/` | SwiftUI interface |
 | `CameraExtension/` | Core Media I/O camera extension (virtual camera) |
 | `Tests/ParserCheck/` | Stand-alone checks for descriptor parsing and value encoding |
+| `Design/AppIcon/` | App icon source (HTML/CSS, rendered to `Resources/AppIcon.icns`) |
 
 ## Troubleshooting
 * **"No hardware controls found"**: the camera must be plugged in directly or through a data-capable hub. Built-in FaceTime and Continuity cameras don't support UVC controls, but the Studio tab still works with them.
 * **A control is greyed out with an AUTO badge**: turn off its auto mode first (for example *Auto White Balance* before *Color Temperature*, or *Exposure Mode → Manual* before *Exposure Time*).
-* **The virtual camera shows "Open the MacCam app"**: MacCam has to be running with *Send to Virtual Camera* on.
+* **The virtual camera shows "Open the Framelight app"**: Framelight has to be running with *Send to Virtual Camera* on.

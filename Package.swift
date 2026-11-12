@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacCam",
+    name: "Framelight",
     platforms: [.macOS(.v26)],
     targets: [
         .executableTarget(
-            name: "MacCam",
-            path: "Sources/MacCam",
+            name: "Framelight",
+            path: "Sources/Framelight",
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreMediaIO"),

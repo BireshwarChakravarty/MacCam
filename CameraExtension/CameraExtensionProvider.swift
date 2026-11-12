@@ -5,10 +5,10 @@ import CoreVideo
 import CoreGraphics
 import AppKit
 
-// MacCam Virtual Camera
+// Framelight Camera
 //
 // One device with two streams:
-//   • a SINK stream that the MacCam app pushes processed frames into, and
+//   • a SINK stream that the Framelight app pushes processed frames into, and
 //   • a SOURCE stream that Zoom / Meet / Teams / OBS read from.
 // When the app isn't sending, the source shows a placeholder card.
 
@@ -25,7 +25,7 @@ final class VirtualDeviceSource: NSObject, CMIOExtensionDeviceSource {
     private var pool: CVPixelBufferPool!
     private var placeholder: CVPixelBuffer?
 
-    private let timerQueue = DispatchQueue(label: "maccam.extension.timer", qos: .userInteractive)
+    private let timerQueue = DispatchQueue(label: "framelight.extension.timer", qos: .userInteractive)
     private var timer: DispatchSourceTimer?
     private var sinkTimer: DispatchSourceTimer?
 
@@ -139,7 +139,7 @@ final class VirtualDeviceSource: NSObject, CMIOExtensionDeviceSource {
         sourceStream.stream.send(sampleBuffer, discontinuity: [], hostTimeInNanoseconds: now)
     }
 
-    // MARK: Sink stream (what the MacCam app writes)
+    // MARK: Sink stream (what the Framelight app writes)
 
     func startSink(client: CMIOExtensionClient?) {
         lock.lock()
@@ -204,11 +204,11 @@ final class VirtualDeviceSource: NSObject, CMIOExtensionDeviceSource {
         let nsctx = NSGraphicsContext(cgContext: ctx, flipped: false)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = nsctx
-        let title = NSAttributedString(string: "MacCam", attributes: [
+        let title = NSAttributedString(string: "Framelight", attributes: [
             .font: NSFont.systemFont(ofSize: 96, weight: .bold),
             .foregroundColor: NSColor.white,
         ])
-        let subtitle = NSAttributedString(string: "Open the MacCam app to start the camera", attributes: [
+        let subtitle = NSAttributedString(string: "Open the Framelight app to start the camera", attributes: [
             .font: NSFont.systemFont(ofSize: 40, weight: .regular),
             .foregroundColor: NSColor(white: 1, alpha: 0.7),
         ])

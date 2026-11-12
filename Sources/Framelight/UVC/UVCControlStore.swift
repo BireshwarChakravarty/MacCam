@@ -41,7 +41,7 @@ final class UVCControlStore: ObservableObject {
     @Published private(set) var lastError: String?
 
     let device: UVCDevice?
-    private let queue = DispatchQueue(label: "maccam.uvc", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "framelight.uvc", qos: .userInitiated)
     private var pendingWrites: [String: Int] = [:]
     private var flushScheduled = false
     private var pollTimer: Timer?

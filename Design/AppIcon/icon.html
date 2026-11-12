@@ -1,0 +1,130 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: transparent; }
+  #canvas { position: relative; width: 1024px; height: 1024px; }
+  /* Apple macOS template: 824×824 shape centred on a 1024 canvas. */
+  #shape { position: absolute; left: 100px; top: 100px; width: 824px; height: 824px; overflow: hidden; }
+  .layer { position: absolute; inset: 0; }
+  .bg {
+    background:
+      radial-gradient(120% 90% at 22% 8%, rgba(150, 190, 255, .45), rgba(150, 190, 255, 0) 55%),
+      radial-gradient(90% 70% at 85% 105%, rgba(255, 150, 70, .28), rgba(255, 150, 70, 0) 60%),
+      linear-gradient(180deg, #2c4a8c 0%, #18295a 48%, #0b1330 100%);
+  }
+  /* Lens: Kelvin ring (warm → daylight → cool), barrel, glass element. */
+  .ring {
+    left: 172px; top: 172px; width: 480px; height: 480px; border-radius: 50%; position: absolute;
+    background: conic-gradient(from 200deg, #ff8a2a, #ffc27a, #fff3e2, #ffffff, #dbe9ff, #8fbaff, #4f86ff, #8fbaff, #ffc27a, #ff8a2a);
+    -webkit-mask: radial-gradient(circle, transparent 0 196px, #000 197px 240px, transparent 241px);
+            mask: radial-gradient(circle, transparent 0 196px, #000 197px 240px, transparent 241px);
+    filter: saturate(1.15);
+  }
+  .ring-gloss {
+    left: 172px; top: 172px; width: 480px; height: 480px; border-radius: 50%; position: absolute;
+    background: linear-gradient(160deg, rgba(255,255,255,.55), rgba(255,255,255,0) 45%, rgba(0,0,0,.25));
+    -webkit-mask: radial-gradient(circle, transparent 0 196px, #000 197px 240px, transparent 241px);
+            mask: radial-gradient(circle, transparent 0 196px, #000 197px 240px, transparent 241px);
+  }
+  .barrel {
+    left: 216px; top: 216px; width: 392px; height: 392px; border-radius: 50%; position: absolute;
+    background: radial-gradient(circle, #0a0f1f 0 70%, #1d2a4d 86%, #2d3f6e 100%);
+    box-shadow: inset 0 6px 14px rgba(255,255,255,.12), inset 0 -10px 24px rgba(0,0,0,.6);
+  }
+  .glass {
+    left: 262px; top: 262px; width: 300px; height: 300px; border-radius: 50%; position: absolute;
+    background:
+      radial-gradient(circle at 50% 50%, #0a0d1a 0 22%, rgba(10,13,26,0) 23%),
+      repeating-conic-gradient(from 15deg, rgba(120,150,255,.10) 0 30deg, rgba(40,60,140,.05) 30deg 60deg),
+      radial-gradient(circle at 42% 38%, #3a5bd6 0%, #1f2f86 38%, #0d1440 70%, #070a1d 100%);
+    box-shadow: inset 0 0 0 6px rgba(255,255,255,.06);
+  }
+  .iris-glow {
+    left: 262px; top: 262px; width: 300px; height: 300px; border-radius: 50%; position: absolute;
+    background: radial-gradient(circle at 62% 66%, rgba(255,170,90,.55), rgba(255,170,90,0) 34%);
+    mix-blend-mode: screen;
+  }
+  .spec {
+    left: 300px; top: 292px; width: 120px; height: 78px; border-radius: 50%; position: absolute;
+    background: radial-gradient(ellipse at 50% 50%, rgba(255,255,255,.95), rgba(255,255,255,0) 70%);
+    transform: rotate(-28deg);
+  }
+  .spec2 {
+    left: 470px; top: 470px; width: 26px; height: 26px; border-radius: 50%; position: absolute;
+    background: radial-gradient(circle, rgba(255,255,255,.8), rgba(255,255,255,0) 70%);
+  }
+  .rim { position: absolute; inset: 0; }
+</style></head>
+<body>
+<div id="canvas">
+  <div id="shape">
+    <div class="layer bg"></div>
+    <svg class="layer" viewBox="0 0 824 824" width="824" height="824" aria-hidden="true">
+      <!-- Auto-framing brackets -->
+      <g fill="none" stroke="#ffffff" stroke-opacity=".94" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M128 250 V170 A42 42 0 0 1 170 128 H250"/>
+        <path d="M574 128 H654 A42 42 0 0 1 696 170 V250"/>
+        <path d="M696 574 V654 A42 42 0 0 1 654 696 H574"/>
+        <path d="M250 696 H170 A42 42 0 0 1 128 654 V574"/>
+      </g>
+    </svg>
+    <div class="ring"></div>
+    <div class="ring-gloss"></div>
+    <div class="barrel"></div>
+    <div class="glass"></div>
+    <div class="iris-glow"></div>
+    <div class="spec"></div>
+    <div class="spec2"></div>
+    <svg class="rim" viewBox="0 0 824 824" width="824" height="824" aria-hidden="true">
+      <defs>
+        <linearGradient id="rimg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity=".45"/>
+          <stop offset=".35" stop-color="#fff" stop-opacity=".08"/>
+          <stop offset="1" stop-color="#fff" stop-opacity=".18"/>
+        </linearGradient>
+      </defs>
+      <path id="rimPath" fill="none" stroke="url(#rimg)" stroke-width="5"/>
+    </svg>
+  </div>
+</div>
+<script>
+// Continuous-corner ("squircle") rounded square, as in Apple's macOS icon template:
+// 824 px, corner radius 185.4, iOS-style smoothing (~60%).
+function squircle(w, h, r, s) {
+  const rad = (d) => d * Math.PI / 180;
+  const p = Math.min((1 + s) * r, Math.min(w, h) / 2);
+  const arc = 90 * (1 - s);
+  const arcLen = Math.sin(rad(arc / 2)) * r * Math.SQRT2;
+  const alpha = (90 - arc) / 2;
+  const p3p4 = r * Math.tan(rad(alpha / 2));
+  const beta = 45 * s;
+  const c = p3p4 * Math.cos(rad(beta));
+  const d = c * Math.tan(rad(beta));
+  const b = (p - arcLen - c - d) / 3;
+  const a = 2 * b;
+  return [
+    `M ${w - p} 0`,
+    `c ${a} 0 ${a + b} 0 ${a + b + c} ${d}`,
+    `a ${r} ${r} 0 0 1 ${arcLen} ${arcLen}`,
+    `c ${d} ${c} ${d} ${b + c} ${d} ${a + b + c}`,
+    `L ${w} ${h - p}`,
+    `c 0 ${a} 0 ${a + b} ${-d} ${a + b + c}`,
+    `a ${r} ${r} 0 0 1 ${-arcLen} ${arcLen}`,
+    `c ${-c} ${d} ${-(b + c)} ${d} ${-(a + b + c)} ${d}`,
+    `L ${p} ${h}`,
+    `c ${-a} 0 ${-(a + b)} 0 ${-(a + b + c)} ${-d}`,
+    `a ${r} ${r} 0 0 1 ${-arcLen} ${-arcLen}`,
+    `c ${-d} ${-c} ${-d} ${-(b + c)} ${-d} ${-(a + b + c)}`,
+    `L 0 ${p}`,
+    `c 0 ${-a} 0 ${-(a + b)} ${d} ${-(a + b + c)}`,
+    `a ${r} ${r} 0 0 1 ${arcLen} ${-arcLen}`,
+    `c ${c} ${-d} ${b + c} ${-d} ${a + b + c} ${-d}`,
+    'Z',
+  ].join(' ');
+}
+const path = squircle(824, 824, 185.4, 0.6);
+document.getElementById('shape').style.clipPath = `path('${path}')`;
+document.getElementById('rimPath').setAttribute('d', path);
+window.iconReady = true;
+</script>
+</body></html>

@@ -124,6 +124,8 @@ enum Benchmark {
         let frame = person.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: background, kCIInputMaskImageKey: matte])
 
         let blurRadius: CGFloat = 20
+        // A blur can only carry the subject's colour as far as its own reach: disc radius + Gaussian tail.
+        let haloReach = Int(blurRadius * 1.5)
         func composite(_ bg: CIImage) -> CIImage {
             person.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: bg, kCIInputMaskImageKey: matte]).cropped(to: rect)
         }
@@ -143,7 +145,7 @@ enum Benchmark {
             for y in stride(from: 0, to: h, by: 2) {
                 for x in stride(from: 0, to: w, by: 2) {
                     let d = hypot(Double(x) - Double(center.x), Double(y) - Double(center.y)) - Double(radius)
-                    guard d > 4, d < 70 else { continue }
+                    guard d > 2, d < Double(haloReach) else { continue }
                     let i = (y * w + x) * 4
                     sum += Double(abs(img[i] - t[i]) + abs(img[i + 1] - t[i + 1]) + abs(img[i + 2] - t[i + 2])) / 3
                     count += 1
@@ -153,7 +155,7 @@ enum Benchmark {
         }
         let naiveErr = ringError(n), ourErr = ringError(o)
         let reduction = naiveErr > 0 ? (1 - ourErr / naiveErr) * 100 : 0
-        log("Mean colour error in the 70 px band around the subject, versus a true blur of the room without the person (0–255 scale, lower is better):")
+        log("Mean colour error in the band around the subject that a 20 px blur can reach (2–\(haloReach) px), versus a true blur of the room without the person. Scale 0–255, lower is better:")
         log()
         log("| Method | Halo error |")
         log("|---|---:|")
@@ -221,6 +223,9 @@ enum Benchmark {
         let denoised = read(run(strength: 0.35, adaptive: true) { _ in clean }, context: context, rect: rect)
         let strong = read(run(strength: 1.0, adaptive: true) { _ in clean }, context: context, rect: rect)
         let rawRMS = rms(raw, truth), ourRMS = rms(denoised, truth), strongRMS = rms(strong, truth)
+        if rawRMS < 0.005 {
+            failures.append(String(format: "Test noise wasn't applied (raw RMS %.4f): grain generator is broken", rawRMS))
+        }
         let gain = 20 * log10(rawRMS / max(ourRMS, 1e-9)), strongGain = 20 * log10(rawRMS / max(strongRMS, 1e-9))
 
         // Moving object: how much ghosting is left behind.
@@ -240,6 +245,7 @@ enum Benchmark {
 
         log("| Measure | Result |")
         log("|---|---:|")
+        log(String(format: "| Noise in the input (RMS, 0–255) | %.1f |", rawRMS * 255))
         log(String(format: "| Noise removed, default strength (35%%) | %.1f dB |", gain))
         log(String(format: "| Noise removed, maximum strength | %.1f dB |", strongGain))
         log(String(format: "| Ghost trail behind a moving object, Framelight motion-adaptive | %.2f |", ghostOurs * 255))

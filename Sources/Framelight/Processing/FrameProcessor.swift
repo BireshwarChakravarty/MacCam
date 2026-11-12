@@ -402,7 +402,7 @@ final class FrameProcessor: @unchecked Sendable {
                                  now: Double, dt: Double) {
         let active = s.autoLight || (s.naturalSkin && !s.hasWhitePoint)
         let face = detection?.faces.max { $0.width * $0.height < $1.width * $1.height }
-        if let face { lastFaceSeen = now }
+        if face != nil { lastFaceSeen = now }
 
         if active, frameCount % 5 == 0 {
             if let face, s.meteringMode == .face {
@@ -677,10 +677,10 @@ final class FrameProcessor: @unchecked Sendable {
         // Background weight = 1 - person, pushed to 0 slightly early so edge pixels don't contribute.
         let weight = CIFilter.colorMatrix()
         weight.inputImage = matte.applyingFilter("CIColorInvert")
-        weight.rVector = CIVector(x: 1.3, y: 0, z: 0, w: 0)
-        weight.gVector = CIVector(x: 0, y: 1.3, z: 0, w: 0)
-        weight.bVector = CIVector(x: 0, y: 0, z: 1.3, w: 0)
-        weight.biasVector = CIVector(x: -0.3, y: -0.3, z: -0.3, w: 0)
+        weight.rVector = CIVector(x: 1.6, y: 0, z: 0, w: 0)
+        weight.gVector = CIVector(x: 0, y: 1.6, z: 0, w: 0)
+        weight.bVector = CIVector(x: 0, y: 0, z: 1.6, w: 0)
+        weight.biasVector = CIVector(x: -0.6, y: -0.6, z: -0.6, w: 0)
         let w = (weight.outputImage ?? matte).applyingFilter("CIColorClamp")
 
         let premultiplied = CIFilter.blendWithMask()
@@ -704,24 +704,27 @@ final class FrameProcessor: @unchecked Sendable {
     }
 
     /// Real optics keep sensor noise in out-of-focus areas; matching it hides the "pasted" look.
-    func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.016) -> CIImage {
+    /// Standard film-grain compositing: a 50%-grey noise layer in soft-light mode (neutral grey = no change),
+    /// applied in perceptual space so the grain is even across tones.
+    func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.03) -> CIImage {
         guard let noise = CIFilter.randomGenerator().outputImage else { return image }
         let shifted = noise
             .transformed(by: CGAffineTransform(translationX: CGFloat.random(in: 0..<512), y: CGFloat.random(in: 0..<512)))
             .cropped(to: extent)
+        // Grey noise around 0.5: soft light with 0.5 leaves the image unchanged.
         let m = CIFilter.colorMatrix()
         m.inputImage = shifted
-        let k = amount / 3
+        let k = amount * 2 / 3
         m.rVector = CIVector(x: k, y: k, z: k, w: 0)
         m.gVector = CIVector(x: k, y: k, z: k, w: 0)
         m.bVector = CIVector(x: k, y: k, z: k, w: 0)
         m.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
-        m.biasVector = CIVector(x: -amount / 2, y: -amount / 2, z: -amount / 2, w: 0)
-        guard let grain = m.outputImage else { return image }
-        let add = CIFilter.additionCompositing()
-        add.inputImage = grain
-        add.backgroundImage = image.applyingFilter("CILinearToSRGBToneCurve")
-        guard let out = add.outputImage else { return image }
+        m.biasVector = CIVector(x: 0.5 - amount, y: 0.5 - amount, z: 0.5 - amount, w: 1)
+        guard let grain = m.outputImage?.cropped(to: extent) else { return image }
+        let blend = CIFilter.softLightBlendMode()
+        blend.inputImage = grain
+        blend.backgroundImage = image.applyingFilter("CILinearToSRGBToneCurve")
+        guard let out = blend.outputImage else { return image }
         return out.applyingFilter("CISRGBToneCurveToLinear").cropped(to: extent)
     }
 

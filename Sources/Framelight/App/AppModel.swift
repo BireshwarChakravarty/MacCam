@@ -37,13 +37,12 @@ final class AppModel: ObservableObject {
         didSet {
             guard settings != oldValue else { return }
             processor.settings = settings
-            saveSettings()
+            scheduleSave()
         }
     }
 
-    @Published var histogram: [[Float]] = []
-    @Published var lookThumbnails: [LookStyle: NSImage] = [:]
-    @Published var stats: FrameProcessor.FrameStats?
+    /// Fast-changing readouts live here so they don't redraw the whole window.
+    let live = LiveState()
     @Published var showHistogram = true
     @Published var showGrid = false
     @Published private(set) var isRecording = false
@@ -104,18 +103,22 @@ final class AppModel: ObservableObject {
         }
         processor.onPreview = { buffer in frames.put(buffer) }
         processor.onVirtualCameraFrame = { buffer, _ in virtualCamera.send(buffer) }
-        processor.onHistogram = { [weak self] h in
-            DispatchQueue.main.async { self?.histogram = h }
+        let live = live
+        processor.onHistogram = { h in
+            DispatchQueue.main.async { live.histogram = h }
         }
-        processor.onStats = { [weak self] s in
-            DispatchQueue.main.async { self?.stats = s }
+        processor.onStats = { s in
+            DispatchQueue.main.async { live.update(s) }
+        }
+        camera.onFPS = { fps in
+            DispatchQueue.main.async { if abs(live.fps - fps) > 0.4 { live.fps = fps } }
         }
         processor.onGesture = { [weak self] gesture in
             DispatchQueue.main.async { self?.handleGesture(gesture) }
         }
         processor.onLookThumbnails = { [weak self] thumbs in
             let images = thumbs.mapValues { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
-            DispatchQueue.main.async { self?.lookThumbnails = images }
+            DispatchQueue.main.async { self?.live.lookThumbnails = images }
         }
     }
 
@@ -353,6 +356,16 @@ final class AppModel: ObservableObject {
     }
 
     func toggleCompare() { settings.compare.toggle() }
+
+    private var saveWork: DispatchWorkItem?
+
+    /// Writing to disk on every slider tick adds up; save once things settle.
+    private func scheduleSave() {
+        saveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveSettings() }
+        saveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
 
     private func saveSettings() {
         if let data = try? JSONEncoder().encode(settings) {

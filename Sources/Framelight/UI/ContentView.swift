@@ -124,7 +124,7 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.secondary)
             } else {
-                PreviewView(frames: model.frames, context: model.processor.ciContext, device: model.processor.metalDevice)
+                PreviewView(frames: model.frames, device: model.processor.metalDevice)
                 if model.showGrid {
                     GridOverlay(aspect: model.settings.outputSize.width / model.settings.outputSize.height)
                 }
@@ -150,7 +150,8 @@ struct ContentView: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    statusChips
+                    StatusChips(live: model.live, autoFraming: model.settings.autoFraming, privacy: model.settings.privacy,
+                                virtualCameraLive: model.virtualCameraStatus == .streaming)
                     Spacer()
                     if model.isRecording {
                         Label("REC", systemImage: "circle.fill")
@@ -162,8 +163,8 @@ struct ContentView: View {
                 }
                 Spacer()
                 HStack(alignment: .bottom) {
-                    if model.showHistogram, !model.histogram.isEmpty {
-                        HistogramView(channels: model.histogram)
+                    if model.showHistogram {
+                        HistogramOverlay(live: model.live)
                     }
                     Spacer()
                     if let toast = model.toast {
@@ -215,49 +216,6 @@ struct ContentView: View {
                     .padding(.top, 54)
                     .allowsHitTesting(false)
             }
-        }
-    }
-
-    /// Live status pills over the video: frame rate, virtual camera, framing.
-    private var statusChips: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 8) {
-                Text(String(format: "%.0f fps", model.camera.measuredFPS))
-                    .monospacedDigit()
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .glassEffect(.regular, in: Capsule())
-                if model.settings.privacy {
-                    Label("Privacy on", systemImage: "eye.slash.fill")
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .glassEffect(.regular.tint(.orange.opacity(0.35)), in: Capsule())
-                }
-                if model.virtualCameraStatus == .streaming {
-                    Label("Virtual Cam Live", systemImage: "dot.radiowaves.left.and.right")
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .glassEffect(.regular.tint(.green.opacity(0.35)), in: Capsule())
-                }
-                if model.settings.autoFraming {
-                    Group {
-                        if let stats = model.stats {
-                            if stats.facesDetected > 0 && stats.zoom < 1.06 {
-                                Label("Auto Framing · you're close to the camera: sit back a little for room to follow",
-                                      systemImage: "arrow.down.backward.and.arrow.up.forward")
-                            } else if stats.facesDetected > 0 {
-                                Text(String(format: "Auto Framing · %.2f× · %@", stats.zoom,
-                                            stats.facesDetected == 1 ? "1 person" : "\(stats.facesDetected) people"))
-                                    .monospacedDigit()
-                            } else {
-                                Label("Auto Framing · looking for a face", systemImage: "person.fill.questionmark")
-                            }
-                        } else {
-                            Label("Auto Framing", systemImage: "person.crop.square.filled.and.at.rectangle")
-                        }
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .glassEffect(.regular, in: Capsule())
-                }
-            }
-            .font(.caption.weight(.semibold))
         }
     }
 

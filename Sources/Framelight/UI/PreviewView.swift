@@ -5,11 +5,10 @@ import CoreImage
 /// GPU preview of the processed output, drawn at display refresh rate.
 struct PreviewView: NSViewRepresentable {
     let frames: FrameStore
-    let context: CIContext
     let device: MTLDevice?
 
     func makeCoordinator() -> PreviewRenderer {
-        PreviewRenderer(frames: frames, context: context, device: device)
+        PreviewRenderer(frames: frames, device: device)
     }
 
     func makeNSView(context ctx: Context) -> MTKView {
@@ -39,11 +38,17 @@ final class PreviewRenderer: NSObject, MTKViewDelegate {
     private var needsRedraw = true
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
-    init(frames: FrameStore, context: CIContext, device: MTLDevice?) {
+    init(frames: FrameStore, device: MTLDevice?) {
         self.frames = frames
-        self.context = context
         self.device = device ?? MTLCreateSystemDefaultDevice()
         self.commandQueue = self.device?.makeCommandQueue()
+        // Its own context on its own command queue: drawing the preview never waits behind
+        // the processing pipeline's GPU work (and vice versa).
+        if let queue = commandQueue {
+            self.context = CIContext(mtlCommandQueue: queue, options: [.cacheIntermediates: false, .name: "Framelight Preview"])
+        } else {
+            self.context = CIContext(options: [.cacheIntermediates: false])
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {

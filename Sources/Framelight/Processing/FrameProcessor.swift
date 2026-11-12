@@ -67,6 +67,7 @@ final class FrameProcessor: @unchecked Sendable {
     private let gradeQueue = DispatchQueue(label: "framelight.grade", qos: .userInitiated)
     private var lut: (key: Grade, data: Data)?
     private var lutPending: Grade?
+    private var lutBuilding = false
     private static let lutDimension = 33
 
     // Auto light (face-metered exposure + skin-tone white balance)
@@ -794,20 +795,35 @@ final class FrameProcessor: @unchecked Sendable {
 
     // MARK: Grade
 
+    /// Builds the grade LUT for the latest settings. While a build runs, newer requests replace each
+    /// other, so dragging a slider never queues up a backlog of stale builds: the grade follows the slider.
     private func requestLUT(_ key: Grade) {
         let start: Bool = lock.locked {
-            if lut?.key == key || lutPending == key { return false }
-            lutPending = key
+            if lutBuilding {
+                lutPending = key          // picked up when the current build finishes
+                return false
+            }
+            if lut?.key == key { return false }
+            lutBuilding = true
             return true
         }
         guard start else { return }
+        buildLUT(key)
+    }
+
+    private func buildLUT(_ key: Grade) {
         gradeQueue.async { [self] in
             let floats = GradeEngine.buildLUT(key, dimension: Self.lutDimension)
             let data = floats.withUnsafeBufferPointer { Data(buffer: $0) }
-            lock.locked {
+            let next: Grade? = lock.locked {
                 lut = (key, data)
-                if lutPending == key { lutPending = nil }
+                let pending = lutPending
+                lutPending = nil
+                if let pending, pending != key { return pending }
+                lutBuilding = false
+                return nil
             }
+            if let next { buildLUT(next) }
         }
     }
 

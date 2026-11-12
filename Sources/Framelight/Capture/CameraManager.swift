@@ -49,7 +49,9 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     @Published private(set) var isRunning = false
     @Published private(set) var authorization: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @Published private(set) var errorMessage: String?
-    @Published private(set) var measuredFPS: Double = 0
+    /// Not @Published: frame-rate updates go to LiveState via `onFPS`, so they don't redraw the window.
+    private(set) var measuredFPS: Double = 0
+    var onFPS: ((Double) -> Void)?
 
     let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "framelight.session")
@@ -229,7 +231,8 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             let fps = Double(fpsCounter) / (now - fpsWindowStart)
             fpsCounter = 0
             fpsWindowStart = now
-            DispatchQueue.main.async { self.measuredFPS = fps }
+            measuredFPS = fps
+            onFPS?(fps)
         }
     }
 }

@@ -32,14 +32,8 @@ struct StudioPanel: View {
 
     private var lookSection: some View {
         Section {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 10) {
-                ForEach(LookStyle.allCases) { look in
-                    LookTile(look: look, image: model.lookThumbnails[look], selected: model.settings.look == look) {
-                        model.settings.look = look
-                    }
-                }
-            }
-            .padding(.vertical, 4)
+            LookGrid(live: model.live, selected: $model.settings.look)
+                .padding(.vertical, 4)
             TunedSlider("Strength", value: $model.settings.lookIntensity, in: 0...1, reset: 1) { "\(Int(($0 * 100).rounded()))%" }
             HStack {
                 Picker("Creative LUT", selection: Binding(get: { model.settings.customLUT ?? "" },
@@ -69,7 +63,7 @@ struct StudioPanel: View {
             Toggle(isOn: $model.settings.autoLight) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Auto Light")
-                    Text(autoLightStatus).font(.caption).foregroundStyle(.secondary)
+                    LiveCaption(live: model.live) { autoLightStatus($0) }
                 }
             }
             if model.settings.autoLight {
@@ -81,7 +75,7 @@ struct StudioPanel: View {
             Toggle(isOn: $model.settings.naturalSkin) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Natural Skin Tones")
-                    Text(skinStatus).font(.caption).foregroundStyle(.secondary)
+                    LiveCaption(live: model.live) { skinStatus($0) }
                 }
             }
             .disabled(model.settings.hasWhitePoint)
@@ -124,16 +118,16 @@ struct StudioPanel: View {
         }
     }
 
-    private var autoLightStatus: String {
+    private func autoLightStatus(_ stats: FrameProcessor.FrameStats?) -> String {
         guard model.settings.autoLight else { return "Meters your face (or the scene) and only steps in when it's too dark or too bright." }
-        guard let ev = model.stats?.autoExposure, abs(ev) >= 0.05 else { return "Your face is well exposed. No correction." }
+        guard let ev = stats?.autoExposure, abs(ev) >= 0.05 else { return "Your face is well exposed. No correction." }
         return String(format: "Correcting %+.1f EV for your face", ev)
     }
 
-    private var skinStatus: String {
+    private func skinStatus(_ stats: FrameProcessor.FrameStats?) -> String {
         if model.settings.hasWhitePoint { return "Paused while your picked white point is in use." }
         guard model.settings.naturalSkin else { return "Removes green or magenta casts using your skin tone, like a colourist." }
-        return model.stats?.skinCorrection == true ? "Correcting a colour cast from the lighting." : "Skin tones look natural. No correction."
+        return stats?.skinCorrection == true ? "Correcting a colour cast from the lighting." : "Skin tones look natural. No correction."
     }
 
     // MARK: Detail
@@ -362,6 +356,24 @@ struct StudioPanel: View {
     private func signedPercent(_ v: Double) -> String {
         let p = Int((v * 100).rounded())
         return p == 0 ? "0%" : String(format: "%+ld%%", p)
+    }
+}
+
+// MARK: - Look grid
+
+/// Observes only the thumbnails, so a new thumbnail doesn't redraw the rest of the sidebar.
+private struct LookGrid: View {
+    @ObservedObject var live: LiveState
+    @Binding var selected: LookStyle
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 10) {
+            ForEach(LookStyle.allCases) { look in
+                LookTile(look: look, image: live.lookThumbnails[look], selected: selected == look) {
+                    selected = look
+                }
+            }
+        }
     }
 }
 

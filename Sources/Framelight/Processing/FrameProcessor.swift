@@ -344,7 +344,7 @@ final class FrameProcessor: @unchecked Sendable {
                 }
                 let meanDiff = CGFloat((px[0] + px[1] + px[2]) / 3)
                 lastMeanDifference = Double(meanDiff)
-                let measured = min(0.25, max(0.012, meanDiff * 1.8))
+                let measured = min(0.25, max(0.012, meanDiff * 2.2))
                 noiseFloor = noiseFloor * 0.6 + measured * 0.4
             }
         }
@@ -739,7 +739,9 @@ final class FrameProcessor: @unchecked Sendable {
     func addGrain(_ image: CIImage, extent: CGRect, amount: CGFloat = 0.03) -> CIImage {
         guard let noise = CIFilter.randomGenerator().outputImage else { return image }
         let shifted = noise
-            .transformed(by: CGAffineTransform(translationX: CGFloat.random(in: 0..<512), y: CGFloat.random(in: 0..<512)))
+            // Whole-pixel offsets: crisp, independent grain every frame (fractional offsets would
+            // interpolate the noise, softening it and correlating consecutive frames).
+            .transformed(by: CGAffineTransform(translationX: CGFloat(Int.random(in: 0..<4096)), y: CGFloat(Int.random(in: 0..<4096))))
             .cropped(to: extent)
         // Grey noise around 0.5: soft light with 0.5 leaves the image unchanged.
         let m = CIFilter.colorMatrix()

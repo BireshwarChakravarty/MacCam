@@ -57,6 +57,8 @@ The Camera tab also has a **Natural Baseline** button. It turns down the webcam'
 * **Automations**: apply a preset when an app comes to the front, and **Hold Camera Settings** when Zoom or Teams changes them.
 * **Performance readout** in the Info tab, plus a headless benchmark: `Framelight.app/Contents/MacOS/Framelight --benchmark`.
 
+Measured on a Mac mini (M6), the full pipeline with everything on takes **11.5 ms per frame** (p95 14.4 ms), well within 1080p60. Defaults take 6.5 ms. See [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
 See [docs/COMPETITIVE_AUDIT.md](docs/COMPETITIVE_AUDIT.md) for how this compares with Camo, Elgato Camera Hub, Opal, Insta360, OBSBOT, NVIDIA Broadcast and the UVC utilities.
 
 ### Presets

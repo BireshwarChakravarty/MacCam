@@ -86,6 +86,8 @@ final class FrameProcessor: @unchecked Sendable {
     private var lastGestureDetection = -1.0
     private var timings: [Double] = []
     private var nameTagCache: (key: String, image: CIImage)?
+    private var noiseFloor: CGFloat = 0.03
+    private var denoiseCalls = 0
 
     // Side work
     private var frameCount = 0
@@ -312,24 +314,46 @@ final class FrameProcessor: @unchecked Sendable {
     // MARK: Noise
 
     /// Averages with the previous frame only where nothing moved, so static skin keeps its texture
-    /// while sensor noise drops; moving areas use the current frame and never ghost.
+    /// while sensor noise drops; moving areas use the current frame and don't ghost.
+    /// The motion threshold follows the measured noise level, so a dim, noisy room isn't mistaken for motion.
     func temporalDenoise(current: CIImage, previous: CIImage, strength: Double) -> CIImage {
         let ext = current.extent
         let diff = CIFilter.colorAbsoluteDifference()
         diff.inputImage = current.applyingFilter("CILinearToSRGBToneCurve")
         diff.inputImage2 = previous.applyingFilter("CILinearToSRGBToneCurve")
-        guard let d = diff.outputImage else { return current }
+        guard let d = diff.outputImage?.cropped(to: ext) else { return current }
 
-        // Differences below the noise floor count as "still"; anything bigger is motion.
-        let gain: CGFloat = 16, floor: CGFloat = 0.03
+        // Noise floor: most of a webcam frame is still, so the mean frame-to-frame difference
+        // is dominated by noise. Re-measured every few frames and smoothed.
+        denoiseCalls &+= 1
+        if denoiseCalls % 4 == 1 {
+            let small = d.transformed(by: CGAffineTransform(scaleX: 0.125, y: 0.125))
+            let avg = CIFilter.areaAverage()
+            avg.inputImage = small
+            avg.extent = small.extent
+            if let out = avg.outputImage {
+                var px = [Float](repeating: 0, count: 4)
+                px.withUnsafeMutableBytes { ptr in
+                    ciContext.render(out, toBitmap: ptr.baseAddress!, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                     format: .RGBAf, colorSpace: nil)
+                }
+                let meanDiff = CGFloat((px[0] + px[1] + px[2]) / 3)
+                let measured = min(0.25, max(0.012, meanDiff * 1.8))
+                noiseFloor = noiseFloor * 0.6 + measured * 0.4
+            }
+        }
+
+        // motion = clamp((diff − floor) / (1.5 × floor)): below the noise floor counts as still.
+        let floor = noiseFloor
+        let scale = 1 / (1.5 * floor)
         let m = CIFilter.colorMatrix()
         m.inputImage = d
-        let w = gain / 3
+        let w = scale / 3
         m.rVector = CIVector(x: w, y: w, z: w, w: 0)
         m.gVector = CIVector(x: w, y: w, z: w, w: 0)
         m.bVector = CIVector(x: w, y: w, z: w, w: 0)
         m.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
-        m.biasVector = CIVector(x: -gain * floor, y: -gain * floor, z: -gain * floor, w: 0)
+        m.biasVector = CIVector(x: -floor * scale, y: -floor * scale, z: -floor * scale, w: 0)
         guard let raw = m.outputImage else { return current }
         let motion = raw.applyingFilter("CIColorClamp").clampedToExtent().applyingGaussianBlur(sigma: 2.5).cropped(to: ext)
 

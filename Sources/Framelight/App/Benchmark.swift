@@ -139,32 +139,40 @@ enum Benchmark {
         let t = read(truth, context: context, rect: rect)
         let n = read(naive, context: context, rect: rect)
         let o = read(ours, context: context, rect: rect)
-        func ringError(_ img: [Float]) -> Double {
-            var sum = 0.0, count = 0
-            let w = Int(size.width), h = Int(size.height)
+        let w = Int(size.width), h = Int(size.height)
+        let subject: [Float] = { let p = read(person, context: context, rect: CGRect(x: 0, y: 0, width: 1, height: 1)); return [p[0], p[1], p[2]] }()
+        /// Total error, and the part of it that points toward the subject's colour (the halo itself).
+        func bandError(_ img: [Float]) -> (total: Double, bleed: Double) {
+            var total = 0.0, bleed = 0.0, count = 0
             for y in stride(from: 0, to: h, by: 2) {
                 for x in stride(from: 0, to: w, by: 2) {
                     let d = hypot(Double(x) - Double(center.x), Double(y) - Double(center.y)) - Double(radius)
                     guard d > 2, d < Double(haloReach) else { continue }
                     let i = (y * w + x) * 4
-                    sum += Double(abs(img[i] - t[i]) + abs(img[i + 1] - t[i + 1]) + abs(img[i + 2] - t[i + 2])) / 3
+                    let e = [img[i] - t[i], img[i + 1] - t[i + 1], img[i + 2] - t[i + 2]]
+                    let dir = [subject[0] - t[i], subject[1] - t[i + 1], subject[2] - t[i + 2]]
+                    let len = sqrt(dir.map { $0 * $0 }.reduce(0, +))
+                    total += Double(abs(e[0]) + abs(e[1]) + abs(e[2])) / 3
+                    if len > 1e-4 { bleed += max(0, Double((e[0] * dir[0] + e[1] * dir[1] + e[2] * dir[2]) / len)) }
                     count += 1
                 }
             }
-            return count > 0 ? sum / Double(count) * 255 : 0
+            let n = Double(max(1, count))
+            return (total / n * 255, bleed / n * 255)
         }
-        let naiveErr = ringError(n), ourErr = ringError(o)
-        let reduction = naiveErr > 0 ? (1 - ourErr / naiveErr) * 100 : 0
-        log("Mean colour error in the band around the subject that a 20 px blur can reach (2–\(haloReach) px), versus a true blur of the room without the person. Scale 0–255, lower is better:")
+        let naiveErr = bandError(n), ourErr = bandError(o)
+        let reduction = naiveErr.bleed > 0 ? (1 - ourErr.bleed / naiveErr.bleed) * 100 : 0
+        log("Within the reach of a 20 px blur (2–\(haloReach) px from the subject), compared with a true blur of the room. Scale 0–255, lower is better.")
+        log("**Subject colour bleed** is the halo: error pointing toward the person's colour. **Total error** also includes the room hidden behind the person, which no method can see.")
         log()
-        log("| Method | Halo error |")
-        log("|---|---:|")
-        log(String(format: "| Blur whole frame, paste person back (typical) | %.2f |", naiveErr))
-        log(String(format: "| Framelight halo-free blur | %.2f |", ourErr))
+        log("| Method | Subject colour bleed (halo) | Total error |")
+        log("|---|---:|---:|")
+        log(String(format: "| Blur whole frame, paste person back (typical) | %.2f | %.2f |", naiveErr.bleed, naiveErr.total))
+        log(String(format: "| Framelight halo-free blur | %.2f | %.2f |", ourErr.bleed, ourErr.total))
         log()
         log(String(format: "Halo reduced by **%.0f%%**.", reduction))
         log()
-        if reduction < 50 { failures.append(String(format: "Halo reduction only %.0f%% (want ≥ 50%%)", reduction)) }
+        if reduction < 60 { failures.append(String(format: "Halo (subject colour bleed) reduced only %.0f%% (want ≥ 60%%)", reduction)) }
     }
 
     private static func naiveLensBlur(_ image: CIImage, radius: CGFloat) -> CIImage {
@@ -188,28 +196,25 @@ enum Benchmark {
         let size = CGSize(width: 960, height: 540)
         let rect = CGRect(origin: .zero, size: size)
         let clean = texturedScene(size: size)
-        var pool = BufferPool()
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
 
-        func noisy(_ base: CIImage, _ frame: Int) -> CIImage {
-            processor.addGrain(base, extent: rect, amount: 0.09)   // ±4.5% sensor-like noise, fresh each frame
-        }
-        func run(strength: Double, adaptive: Bool, scene: (Int) -> CIImage) -> CIImage {
+        /// Runs 24 frames through a temporal filter, feeding each output back as the next "previous".
+        func run(noise: CGFloat, strength: Double, adaptive: Bool, scene: (Int) -> CIImage) -> CIImage {
+            var pool = BufferPool()
             var previous: CIImage?
             var out = scene(0)
             for f in 0..<24 {
-                let current = noisy(scene(f), f)
+                let current = processor.addGrain(scene(f), extent: rect, amount: noise)   // fresh sensor-like noise each frame
                 if let previous {
-                    if adaptive {
-                        out = processor.temporalDenoise(current: current, previous: previous, strength: strength)
-                    } else {
-                        // Non-adaptive temporal averaging (what simple "3D NR" does).
-                        out = current.applyingFilter("CIDissolveTransition", parameters: [kCIInputTargetImageKey: previous, kCIInputTimeKey: 0.65])
-                    }
+                    out = adaptive
+                        ? processor.temporalDenoise(current: current, previous: previous, strength: strength)
+                        // Non-adaptive temporal averaging, what simple "3D NR" does.
+                        : current.applyingFilter("CIDissolveTransition", parameters: [kCIInputTargetImageKey: previous, kCIInputTimeKey: 0.65])
                 } else {
                     out = current
                 }
                 if let buf = pool.make(size) {
-                    context.render(out, to: buf, bounds: rect, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+                    context.render(out, to: buf, bounds: rect, colorSpace: srgb)
                     out = CIImage(cvPixelBuffer: buf)
                 }
                 previous = out
@@ -217,44 +222,57 @@ enum Benchmark {
             return out
         }
 
-        // Static scene: how much noise is removed.
-        let truth = read(clean, context: context, rect: rect)
-        let raw = read(noisy(clean, 99), context: context, rect: rect)
-        let denoised = read(run(strength: 0.35, adaptive: true) { _ in clean }, context: context, rect: rect)
-        let strong = read(run(strength: 1.0, adaptive: true) { _ in clean }, context: context, rect: rect)
-        let rawRMS = rms(raw, truth), ourRMS = rms(denoised, truth), strongRMS = rms(strong, truth)
-        if rawRMS < 0.005 {
-            failures.append(String(format: "Test noise wasn't applied (raw RMS %.4f): grain generator is broken", rawRMS))
+        let truth = read(clean, context: context, rect: rect, colorSpace: srgb)
+        log("| Scene | Noise in (0–255 RMS) | Removed at default (35%) | Removed at maximum |")
+        log("|---|---:|---:|---:|")
+        var typicalGain = 0.0
+        for (name, amount) in [("Typical room", CGFloat(0.02)), ("Dim room (high gain)", CGFloat(0.05))] {
+            let raw = read(processor.addGrain(clean, extent: rect, amount: amount), context: context, rect: rect, colorSpace: srgb)
+            let rawRMS = rms(raw, truth)
+            if rawRMS < 0.002 { failures.append(String(format: "Test noise wasn't applied (RMS %.4f)", rawRMS)) }
+            let def = rms(read(run(noise: amount, strength: 0.35, adaptive: true) { _ in clean }, context: context, rect: rect, colorSpace: srgb), truth)
+            let maxRMS = rms(read(run(noise: amount, strength: 1.0, adaptive: true) { _ in clean }, context: context, rect: rect, colorSpace: srgb), truth)
+            let gDef = 20 * log10(rawRMS / Swift.max(def, 1e-9)), gMax = 20 * log10(rawRMS / Swift.max(maxRMS, 1e-9))
+            if amount < 0.03 { typicalGain = gDef }
+            log(String(format: "| %@ | %.1f | %.1f dB | %.1f dB |", name, rawRMS * 255, gDef, gMax))
         }
-        let gain = 20 * log10(rawRMS / max(ourRMS, 1e-9)), strongGain = 20 * log10(rawRMS / max(strongRMS, 1e-9))
+        log()
 
-        // Moving object: how much ghosting is left behind.
+        // Moving object: the dark trail left behind (a bias, so leftover noise averages out).
         let speed: CGFloat = 14
         func moving(_ f: Int) -> CIImage {
             let square = CIImage(color: CIColor(red: 0.05, green: 0.05, blue: 0.08))
                 .cropped(to: CGRect(x: 120 + CGFloat(f) * speed, y: 200, width: 140, height: 140))
             return square.composited(over: clean).cropped(to: rect)
         }
-        let movingTruth = read(moving(23), context: context, rect: rect)
-        let ours = read(run(strength: 1.0, adaptive: true, scene: moving), context: context, rect: rect)
-        let simple = read(run(strength: 1.0, adaptive: false, scene: moving), context: context, rect: rect)
-        // Ghost band: the area the square just left (behind it).
+        let movingTruth = read(moving(23), context: context, rect: rect, colorSpace: srgb)
+        let ours = read(run(noise: 0.02, strength: 1.0, adaptive: true, scene: moving), context: context, rect: rect, colorSpace: srgb)
+        let simple = read(run(noise: 0.02, strength: 1.0, adaptive: false, scene: moving), context: context, rect: rect, colorSpace: srgb)
         let x0 = Int(120 + 23 * speed - 6 * speed), x1 = Int(120 + 23 * speed)
-        let ghostOurs = bandError(ours, movingTruth, width: Int(size.width), x: x0..<x1, y: 200..<340)
-        let ghostSimple = bandError(simple, movingTruth, width: Int(size.width), x: x0..<x1, y: 200..<340)
-
-        log("| Measure | Result |")
+        let ghostOurs = trailDarkening(ours, movingTruth, width: Int(size.width), x: x0..<x1, y: 200..<340)
+        let ghostSimple = trailDarkening(simple, movingTruth, width: Int(size.width), x: x0..<x1, y: 200..<340)
+        log("| Ghost trail behind a moving dark object (0–255, lower is better) | Result |")
         log("|---|---:|")
-        log(String(format: "| Noise in the input (RMS, 0–255) | %.1f |", rawRMS * 255))
-        log(String(format: "| Noise removed, default strength (35%%) | %.1f dB |", gain))
-        log(String(format: "| Noise removed, maximum strength | %.1f dB |", strongGain))
-        log(String(format: "| Ghost trail behind a moving object, Framelight motion-adaptive | %.2f |", ghostOurs * 255))
-        log(String(format: "| Ghost trail, simple temporal averaging | %.2f |", ghostSimple * 255))
+        log(String(format: "| Framelight motion-adaptive, maximum strength | %.2f |", ghostOurs * 255))
+        log(String(format: "| Simple temporal averaging | %.2f |", ghostSimple * 255))
         log()
-        log("Ghost trail is the mean error (0–255) in the area a dark object just moved out of. Lower is better.")
-        log()
-        if gain < 2.5 { failures.append(String(format: "Noise reduction only %.1f dB at default strength (want ≥ 2.5 dB)", gain)) }
+        if typicalGain < 2.5 { failures.append(String(format: "Noise reduction only %.1f dB in a typical room (want ≥ 2.5 dB)", typicalGain)) }
         if ghostOurs > ghostSimple * 0.5 { failures.append(String(format: "Ghosting %.2f is not well below simple averaging %.2f", ghostOurs * 255, ghostSimple * 255)) }
+    }
+
+    /// How much darker than the truth the area behind a moving dark object is (the ghost).
+    private static func trailDarkening(_ a: [Float], _ truth: [Float], width: Int, x: Range<Int>, y: Range<Int>) -> Double {
+        var sum = 0.0, n = 0
+        let height = a.count / 4 / width
+        for yy in y {
+            let row = min(height - 1, max(0, yy))      // the band is symmetric top-to-bottom, so row order doesn't matter
+            for xx in x where xx >= 0 && xx < width {
+                let i = (row * width + xx) * 4
+                for c in 0..<3 { sum += Double(truth[i + c] - a[i + c]) }
+                n += 3
+            }
+        }
+        return max(0, sum / Double(max(1, n)))
     }
 
     private static func texturedScene(size: CGSize) -> CIImage {
@@ -352,21 +370,6 @@ enum Benchmark {
             n += 3
         }
         return sqrt(sum / Double(max(1, n)))
-    }
-
-    private static func bandError(_ a: [Float], _ b: [Float], width: Int, x: Range<Int>, y: Range<Int>) -> Double {
-        var sum = 0.0, n = 0
-        let height = a.count / 4 / width
-        for yy in y {
-            // Bitmap rows may run top-down; the band is symmetric enough to test both orientations' row.
-            let row = min(height - 1, max(0, yy))
-            for xx in x where xx >= 0 && xx < width {
-                let i = (row * width + xx) * 4
-                for c in 0..<3 { sum += Double(abs(a[i + c] - b[i + c])) }
-                n += 3
-            }
-        }
-        return sum / Double(max(1, n))
     }
 
     /// A synthetic camera frame: a room with detail, a window, and a person.

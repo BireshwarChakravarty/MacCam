@@ -223,6 +223,7 @@ enum Benchmark {
         }
 
         let truth = read(clean, context: context, rect: rect, colorSpace: srgb)
+        var diagnostics: [String] = []
         log("| Scene | Noise in (0–255 RMS) | Removed at default (35%) | Removed at maximum |")
         log("|---|---:|---:|---:|")
         var typicalGain = 0.0
@@ -235,7 +236,12 @@ enum Benchmark {
             let gDef = 20 * log10(rawRMS / Swift.max(def, 1e-9)), gMax = 20 * log10(rawRMS / Swift.max(maxRMS, 1e-9))
             if amount < 0.03 { typicalGain = gDef }
             log(String(format: "| %@ | %.1f | %.1f dB | %.1f dB |", name, rawRMS * 255, gDef, gMax))
+            diagnostics.append(String(format: "%@: mean frame difference %.4f, noise floor %.4f", name,
+                                      processor.lastMeanDifference, processor.currentNoiseFloor))
         }
+        log()
+
+        log("Noise-floor estimate (perceptual units): " + diagnostics.joined(separator: "; "))
         log()
 
         // Moving object: the dark trail left behind (a bias, so leftover noise averages out).

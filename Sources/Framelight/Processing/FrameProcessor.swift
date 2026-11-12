@@ -87,6 +87,9 @@ final class FrameProcessor: @unchecked Sendable {
     private var timings: [Double] = []
     private var nameTagCache: (key: String, image: CIImage)?
     private var noiseFloor: CGFloat = 0.03
+    /// Diagnostics for the benchmark.
+    private(set) var lastMeanDifference = 0.0
+    var currentNoiseFloor: Double { Double(noiseFloor) }
     private var denoiseCalls = 0
 
     // Side work
@@ -321,7 +324,9 @@ final class FrameProcessor: @unchecked Sendable {
         let diff = CIFilter.colorAbsoluteDifference()
         diff.inputImage = current.applyingFilter("CILinearToSRGBToneCurve")
         diff.inputImage2 = previous.applyingFilter("CILinearToSRGBToneCurve")
-        guard let d = diff.outputImage?.cropped(to: ext) else { return current }
+        // The difference image's alpha is |1 − 1| = 0; Core Image treats colour as premultiplied, so give it
+        // an opaque alpha before measuring or masking, or the difference can read as zero.
+        guard let d = diff.outputImage?.cropped(to: ext).settingAlphaOne(in: ext) else { return current }
 
         // Noise floor: most of a webcam frame is still, so the mean frame-to-frame difference
         // is dominated by noise. Re-measured every few frames and smoothed.
@@ -338,6 +343,7 @@ final class FrameProcessor: @unchecked Sendable {
                                      format: .RGBAf, colorSpace: nil)
                 }
                 let meanDiff = CGFloat((px[0] + px[1] + px[2]) / 3)
+                lastMeanDifference = Double(meanDiff)
                 let measured = min(0.25, max(0.012, meanDiff * 1.8))
                 noiseFloor = noiseFloor * 0.6 + measured * 0.4
             }

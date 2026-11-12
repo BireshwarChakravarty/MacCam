@@ -207,12 +207,12 @@ final class AutoFramer {
         case .face:
             subject = faces.max { area($0) < area($1) }!
             faceH = subject.height
-            heightInFaces = 1.8 + 1.2 * loose                   // head with a little shoulder
+            heightInFaces = 1.9 + 1.2 * loose                   // head with a little shoulder
             faceLine = 0.60
         case .upperBody:
             subject = faces.max { area($0) < area($1) }!
             faceH = subject.height
-            heightInFaces = 2.9 + 1.4 * loose                   // head, shoulders and chest
+            heightInFaces = 2.7 + 1.2 * loose                   // head, shoulders and chest
             faceLine = 0.68
         case .group:
             subject = faces.dropFirst().reduce(faces[0]) { $0.union($1) }

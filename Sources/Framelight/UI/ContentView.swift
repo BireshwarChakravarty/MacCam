@@ -239,7 +239,10 @@ struct ContentView: View {
                 if model.settings.autoFraming {
                     Group {
                         if let stats = model.stats {
-                            if stats.facesDetected > 0 {
+                            if stats.facesDetected > 0 && stats.zoom < 1.06 {
+                                Label("Auto Framing · you're close to the camera: sit back a little for room to follow",
+                                      systemImage: "arrow.down.backward.and.arrow.up.forward")
+                            } else if stats.facesDetected > 0 {
                                 Text(String(format: "Auto Framing · %.2f× · %@", stats.zoom,
                                             stats.facesDetected == 1 ? "1 person" : "\(stats.facesDetected) people"))
                                     .monospacedDigit()

@@ -16,6 +16,24 @@ struct HardwarePanel: View {
                     HStack { ProgressView().controlSize(.small); Text("Reading camera controls…") }
                 }
             } else {
+                if isKreoOwl {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Kreo Owl 4K Pro", systemImage: "web.camera").font(.headline)
+                            Text("Sony IMX260 sensor · 77° lens · phase-detect autofocus · 4K 30 fps / 1080p 60 fps")
+                                .font(.caption).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("• Use 3840×2160 MJPEG for auto framing: it crops a sharp 1080p shot from the 4K sensor.")
+                                Text("• Use 1920×1080 at 60 fps for the smoothest motion (no room to crop).")
+                                Text("• Anti-Flicker 50 Hz in India stops banding under LED and tube lights.")
+                                Text("• The 77° lens is narrower than Center Stage cameras: auto framing has room to follow you from about 70 cm back.")
+                                Text("• Apply Natural Baseline below to tame the built-in sharpening.")
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
                 ForEach(UVCControlGroup.allCases) { group in
                     let items = controls.states(in: group)
                     if !items.isEmpty {
@@ -69,6 +87,11 @@ struct HardwarePanel: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var isKreoOwl: Bool {
+        let names = [controls.device?.name, model.camera.activeDevice?.localizedName].compactMap { $0?.lowercased() }
+        return names.contains { $0.contains("kreo") || $0.contains("owl") }
     }
 
     private var noControlsView: some View {

@@ -185,5 +185,31 @@ do {
     expect(maxStep < 45, String(format: "no jumps: max %.1f px per frame at 4K", maxStep))
 }
 
+print("Kreo Owl 4K Pro geometry (77° lens; face = 0.38 / 0.29 / 0.23 of frame height at 0.6 / 0.8 / 1.0 m)")
+do {
+    func kreoPerson(faceHeight fh: CGFloat, atX x: CGFloat) -> (face: CGRect, body: CGRect) {
+        let fw = fh * 9 / 16 * 0.95                   // face box in normalized units (frame is 16:9)
+        return (CGRect(x: x - fw / 2, y: 0.42, width: fw, height: fh),
+                CGRect(x: x - fw * 2.2, y: 0, width: fw * 4.4, height: min(1, 0.42 + fh * 1.1)))
+    }
+    for (dist, fh) in [(0.6, 0.38), (0.8, 0.29), (1.0, 0.23)] as [(Double, CGFloat)] {
+        var s = ProcessingSettings(); s.autoFraming = true          // defaults: Face, tightness 0.65
+        let framer = AutoFramer()
+        let p = kreoPerson(faceHeight: fh, atX: 0.5)
+        let (c, t) = run(framer, seconds: 3, start: 0, settings: s) { FramingDetection(faces: [p.face], bodies: [p.body], time: $0) }
+        expect(contains(c, p.face), String(format: "%.1f m: face fully in shot", dist))
+        let want = dist >= 0.8 ? 1.35 : 1.1
+        expect(zoom(c) >= want, String(format: "%.1f m: default framing zooms %.2f× (want ≥ %.2f×)", dist, zoom(c), want))
+        let moved = kreoPerson(faceHeight: fh, atX: 0.3)
+        let (c2, _) = run(framer, seconds: 3, start: t, settings: s) { FramingDetection(faces: [moved.face], bodies: [moved.body], time: $0) }
+        expect(c2.midX < c.midX - 100 && contains(c2, moved.face),
+               String(format: "%.1f m: follows a lean to the left (%.0f → %.0f px)", dist, c.midX, c2.midX))
+    }
+    var ub = ProcessingSettings(); ub.autoFraming = true; ub.framingSubject = .upperBody; ub.framingTightness = 0.5
+    let far = kreoPerson(faceHeight: 0.23, atX: 0.5)
+    let cu = run(AutoFramer(), seconds: 3, start: 0, settings: ub) { FramingDetection(faces: [far.face], bodies: [far.body], time: $0) }.crop
+    expect(zoom(cu) > 1.15, String(format: "Upper Body works from 1 m back: %.2f×", zoom(cu)))
+}
+
 print(failures == 0 ? "ALL FRAMING CHECKS PASSED" : "\(failures) FAILURE(S)")
 exit(failures == 0 ? 0 : 1)

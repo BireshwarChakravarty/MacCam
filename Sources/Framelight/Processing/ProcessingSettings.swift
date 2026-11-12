@@ -76,8 +76,10 @@ enum OutputResolution: String, Codable, CaseIterable, Identifiable {
 struct ProcessingSettings: Codable, Equatable {
     // Framing ("Center Stage")
     var autoFraming = false
-    var framingSubject: FramingSubject = .upperBody
-    var framingTightness = 0.5      // 0 = wide, 1 = tight
+    // Face by default: on a ~77° webcam (Kreo Owl 4K Pro) at desk distance a head-and-shoulders shot is
+    // already the whole frame, so only face framing has room to zoom and follow.
+    var framingSubject: FramingSubject = .face
+    var framingTightness = 0.65     // 0 = wide, 1 = tight
     var framingSpeed = 0.5          // 0 = slow & cinematic, 1 = snappy
     var maxZoom = 2.5
     var digitalZoom = 1.0           // manual zoom when auto framing is off

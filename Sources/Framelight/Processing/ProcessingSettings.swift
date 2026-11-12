@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 enum FramingSubject: String, Codable, CaseIterable, Identifiable {
     case face = "Face"

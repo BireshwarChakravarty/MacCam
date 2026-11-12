@@ -5,6 +5,7 @@ import CoreMedia
 import CoreVideo
 import Metal
 import AppKit
+import QuartzCore
 
 /// The software pipeline: background effects → framing crop → colour grade → output buffer.
 /// Every consumer (preview, recorder, virtual camera) receives the same processed frame.
@@ -25,6 +26,8 @@ final class FrameProcessor: @unchecked Sendable {
     private var frameCount = 0
     private var lastCrop: CGRect = .zero
     private var needsFramerReset = false
+    private let histogramQueue = DispatchQueue(label: "framelight.histogram", qos: .utility)
+    private var histogramBusy = false
 
     /// Called on the capture queue for every processed frame.
     var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
@@ -94,7 +97,8 @@ final class FrameProcessor: @unchecked Sendable {
         let detection = s.autoFraming ? vision.latestDetection : nil
         let crop: CGRect
         if s.autoFraming {
-            crop = framer.crop(source: sourceSize, aspect: aspect, settings: s, detection: detection)
+            crop = framer.crop(source: sourceSize, aspect: aspect, settings: s, detection: detection,
+                               now: CACurrentMediaTime())
         } else {
             crop = AutoFramer.manualCrop(source: sourceSize, aspect: aspect, zoom: s.digitalZoom, panX: s.panX, panY: s.panY)
         }
@@ -135,10 +139,18 @@ final class FrameProcessor: @unchecked Sendable {
         }
 
         if frameCount % 8 == 0 {
-            if let onHistogram { onHistogram(histogram(of: output)) }
+            // GPU readback for the histogram happens off the video thread so it can't stall frames.
+            if let onHistogram, !histogramBusy {
+                histogramBusy = true
+                histogramQueue.async { [weak self] in
+                    guard let self else { return }
+                    onHistogram(self.histogram(of: output))
+                    self.histogramBusy = false
+                }
+            }
             onStats?(FrameStats(sourceSize: sourceSize, outputSize: outSize, crop: crop,
                                 zoom: Double(AutoFramer.fullCrop(source: sourceSize, aspect: aspect).height / max(1, crop.height)),
-                                facesDetected: detection?.faces.count ?? 0))
+                                facesDetected: max(detection?.faces.count ?? 0, detection?.bodies.count ?? 0)))
         }
     }
 

@@ -40,7 +40,6 @@ struct StudioPanel: View {
                 TunedSlider("Tightness", value: $model.settings.framingTightness, in: 0...1, reset: 0.5, format: .percent)
                 TunedSlider("Motion Speed", value: $model.settings.framingSpeed, in: 0...1, reset: 0.5, format: .percent)
                 TunedSlider("Max Zoom", value: $model.settings.maxZoom, in: 1...4, reset: 2.5, format: .multiplier)
-                Toggle("Show framing info", isOn: $model.showFramingOverlay)
             } else {
                 TunedSlider("Digital Zoom", value: $model.settings.digitalZoom, in: 1...4, reset: 1, format: .multiplier)
                 if model.settings.digitalZoom > 1.01 {

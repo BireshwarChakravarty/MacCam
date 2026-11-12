@@ -44,7 +44,6 @@ final class AppModel: ObservableObject {
     @Published var stats: FrameProcessor.FrameStats?
     @Published var showHistogram = true
     @Published var showGrid = false
-    @Published var showFramingOverlay = false
     @Published private(set) var isRecording = false
     @Published private(set) var virtualCameraStatus: VirtualCameraSink.Status = .off
     @Published var toast: String?

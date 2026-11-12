@@ -6,11 +6,7 @@ import QuartzCore
 /// Runs face / body detection and person segmentation off the capture thread.
 /// Results are slightly behind the live frame, which is fine for framing and masks.
 final class VisionAnalyzer: @unchecked Sendable {
-    struct Detection {
-        var faces: [CGRect]      // normalized, bottom-left origin
-        var bodies: [CGRect]     // normalized, bottom-left origin
-        var time: CFTimeInterval
-    }
+    typealias Detection = FramingDetection
 
     private let detectQueue = DispatchQueue(label: "framelight.vision.detect", qos: .userInitiated)
     private let segmentQueue = DispatchQueue(label: "framelight.vision.segment", qos: .userInitiated)

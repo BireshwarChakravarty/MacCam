@@ -177,10 +177,14 @@ struct ContentView: View {
                 }
                 if model.settings.autoFraming {
                     Group {
-                        if model.showFramingOverlay, let stats = model.stats {
-                            Text(String(format: "Auto Framing · %.2f× · %ld face%@", stats.zoom, stats.facesDetected,
-                                        stats.facesDetected == 1 ? "" : "s"))
-                                .monospacedDigit()
+                        if let stats = model.stats {
+                            if stats.facesDetected > 0 {
+                                Text(String(format: "Auto Framing · %.2f× · %@", stats.zoom,
+                                            stats.facesDetected == 1 ? "1 person" : "\(stats.facesDetected) people"))
+                                    .monospacedDigit()
+                            } else {
+                                Label("Auto Framing · looking for a face", systemImage: "person.fill.questionmark")
+                            }
                         } else {
                             Label("Auto Framing", systemImage: "person.crop.square.filled.and.at.rectangle")
                         }

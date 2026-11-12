@@ -1,15 +1,57 @@
 import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
-import QuartzCore
+#endif
 
-/// Software "Center Stage": turns face/body detections into a smoothly moving crop
-/// of the full sensor image. A 4K sensor gives up to 2× lossless zoom into a 1080p output.
+/// One round of face / body detection. Rects are normalized (0–1) with a bottom-left origin,
+/// as Vision and Core Image use.
+struct FramingDetection {
+    var faces: [CGRect]
+    var bodies: [CGRect]
+    var time: Double
+}
+
+/// Software "Center Stage": turns face/body detections into a smoothly moving crop of the
+/// full sensor image. A 4K sensor gives up to 2× lossless zoom into a 1080p output.
+///
+/// Framing is anchored on the face: it's what Vision finds most reliably, and its size says
+/// how far away you are. At desk distance a webcam's body box already fills most of the
+/// frame, so sizing the shot from the body alone would never zoom in.
 final class AutoFramer {
-    private var current: CGRect?
-    private var target: CGRect?
-    private var lastSubjectTime: CFTimeInterval = 0
-    private var lastStepTime: CFTimeInterval = 0
-    private var lastDetectionTime: CFTimeInterval = 0
+    /// Critically damped spring: eases in and out with no overshoot and no velocity jumps.
+    private struct Spring {
+        var value: Double
+        var velocity: Double = 0
+
+        mutating func step(toward target: Double, omega: Double, dt: Double) {
+            var remaining = dt
+            while remaining > 1e-6 {                       // sub-step for stability on dropped frames
+                let h = min(remaining, 1.0 / 240.0)
+                let accel = omega * omega * (target - value) - 2 * omega * velocity
+                velocity += accel * h
+                value += velocity * h
+                remaining -= h
+            }
+        }
+    }
+
+    private var centerX: Spring?
+    private var centerY: Spring?
+    private var height: Spring?
+    /// Measurement-smoothed ideal shot (filters Vision's box noise).
+    private var desired: CGRect?
+    /// The shot the springs are heading to; only changes when you clearly move.
+    private(set) var target: CGRect?
+    private var lastSubjectTime: Double = -.infinity
+    private var lastStepTime: Double?
+    private var lastDetectionTime: Double?
+
+    var current: CGRect? {
+        guard let cx = centerX, let cy = centerY, let h = height else { return nil }
+        return CGRect(x: cx.value - h.value * lastAspect / 2, y: cy.value - h.value / 2,
+                      width: h.value * lastAspect, height: h.value)
+    }
+    private var lastAspect: CGFloat = 16.0 / 9.0
 
     /// Largest rect of the output aspect ratio that fits in the source.
     static func fullCrop(source: CGSize, aspect: CGFloat) -> CGRect {
@@ -23,108 +65,136 @@ final class AutoFramer {
     }
 
     func reset() {
-        current = nil
+        centerX = nil
+        centerY = nil
+        height = nil
+        desired = nil
         target = nil
+        lastSubjectTime = -.infinity
+        lastStepTime = nil
+        lastDetectionTime = nil
     }
 
     /// Manual digital zoom / pan when auto framing is off.
     static func manualCrop(source: CGSize, aspect: CGFloat, zoom: Double, panX: Double, panY: Double) -> CGRect {
         let full = fullCrop(source: source, aspect: aspect)
-        let z = max(1.0, zoom)
+        let z = CGFloat(max(1.0, zoom))
         let w = full.width / z, h = full.height / z
         let slackX = (full.width - w) / 2, slackY = (full.height - h) / 2
-        let cx = full.midX + slackX * panX
-        let cy = full.midY + slackY * panY
+        let cx = full.midX + slackX * CGFloat(panX)
+        let cy = full.midY + slackY * CGFloat(panY)
         return CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
     }
 
+    /// Advances the smoothed crop by one frame. `now` is in seconds (any monotonic clock).
     func crop(source: CGSize, aspect: CGFloat, settings: ProcessingSettings,
-              detection: VisionAnalyzer.Detection?) -> CGRect {
-        let now = CACurrentMediaTime()
+              detection: FramingDetection?, now: Double) -> CGRect {
         let full = Self.fullCrop(source: source, aspect: aspect)
-        let dt = lastStepTime == 0 ? 1.0 / 30.0 : min(0.25, now - lastStepTime)
+        let dt = min(0.25, max(0, now - (lastStepTime ?? (now - 1.0 / 30.0))))
         lastStepTime = now
+        lastAspect = aspect
 
-        if current == nil || current!.width > full.width + 1 || current!.height > full.height + 1 {
-            current = full
+        if centerX == nil || height == nil || height!.value > Double(full.height) + 1 {
+            centerX = Spring(value: Double(full.midX))
+            centerY = Spring(value: Double(full.midY))
+            height = Spring(value: Double(full.height))
         }
 
-        // Only reconsider the target when a new detection arrives.
+        // New detection: blend it into the smoothed ideal shot.
         if let detection, detection.time != lastDetectionTime {
             lastDetectionTime = detection.time
-            if let subject = subjectRect(detection, source: source, mode: settings.framingSubject) {
+            if let proposed = Self.framing(for: detection, source: source, full: full, aspect: aspect, settings: settings) {
                 lastSubjectTime = now
-                let proposed = framing(for: subject, full: full, aspect: aspect, settings: settings)
-                if let t = target, isWithinDeadZone(proposed, t) {
-                    // Keep the shot steady for small movements.
+                if let d = desired, now - lastSubjectTimeBeforeGap < 1.0 {
+                    desired = Self.lerp(d, proposed, 0.35)
                 } else {
-                    target = proposed
+                    desired = proposed
                 }
+                lastSubjectTimeBeforeGap = now
             }
         }
 
-        // Nobody in view for a while: drift back out to the full shot.
-        if now - lastSubjectTime > 2.5 {
+        // Hold the shot until the ideal one is clearly different (hysteresis).
+        if now - lastSubjectTime > 2.0 {
             target = full
+            desired = nil
+        } else if let d = desired {
+            if let t = target, t != full, Self.isWithinDeadZone(d, t) {
+                // Keep the shot steady.
+            } else {
+                target = d
+            }
         }
 
-        guard let target, let cur = current else { return full }
-        let rate = 1.2 + settings.framingSpeed * 5.0
-        let alpha = CGFloat(1 - exp(-dt * rate))
-        let next = CGRect(
-            x: cur.minX + (target.minX - cur.minX) * alpha,
-            y: cur.minY + (target.minY - cur.minY) * alpha,
-            width: cur.width + (target.width - cur.width) * alpha,
-            height: cur.height + (target.height - cur.height) * alpha)
-        current = clamp(next, to: full)
-        return current!
+        let goal = target ?? full
+        let omega = 1.8 + settings.framingSpeed * 4.2           // rad/s: ~1.6 s to settle at default
+        centerX!.step(toward: Double(goal.midX), omega: omega, dt: dt)
+        centerY!.step(toward: Double(goal.midY), omega: omega, dt: dt)
+        height!.step(toward: Double(goal.height), omega: omega * 0.65, dt: dt)   // zoom moves gentler than pan
+
+        let h = min(max(CGFloat(height!.value), full.height / CGFloat(max(1.0, settings.maxZoom)) - 1), full.height)
+        let rect = CGRect(x: CGFloat(centerX!.value) - h * aspect / 2, y: CGFloat(centerY!.value) - h / 2,
+                          width: h * aspect, height: h)
+        return Self.clamp(rect, to: full)
     }
 
-    private func subjectRect(_ d: VisionAnalyzer.Detection, source: CGSize, mode: FramingSubject) -> CGRect? {
+    private var lastSubjectTimeBeforeGap: Double = -.infinity
+
+    private static func lerp(_ a: CGRect, _ b: CGRect, _ t: CGFloat) -> CGRect {
+        CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
+               width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
+    }
+
+    // MARK: Shot composition
+
+    /// The ideal crop for one detection, or nil when nobody was found.
+    static func framing(for d: FramingDetection, source: CGSize, full: CGRect, aspect: CGFloat,
+                        settings: ProcessingSettings) -> CGRect? {
         func px(_ r: CGRect) -> CGRect {
             CGRect(x: r.minX * source.width, y: r.minY * source.height,
                    width: r.width * source.width, height: r.height * source.height)
         }
-        let faces = d.faces.map(px)
-        let bodies = d.bodies.map(px)
+        let area: (CGRect) -> CGFloat = { $0.width * $0.height }
+        var faces = d.faces.map(px).filter { $0.width > 4 && $0.height > 4 }
+        let bodies = d.bodies.map(px).filter { $0.width > 4 && $0.height > 4 }
 
-        switch mode {
-        case .face:
-            return faces.max { $0.width * $0.height < $1.width * $1.height }
-                ?? bodies.max { $0.width * $0.height < $1.width * $1.height }
-        case .upperBody:
-            if let body = bodies.max(by: { $0.width * $0.height < $1.width * $1.height }) { return body }
-            // Estimate shoulders from a face when the body detector misses.
-            if let f = faces.max(by: { $0.width * $0.height < $1.width * $1.height }) {
-                return CGRect(x: f.midX - f.width * 1.6, y: f.minY - f.height * 1.6,
-                              width: f.width * 3.2, height: f.height * 2.8)
+        // No face (turned away, backlit): estimate the head from the top of the body box.
+        if faces.isEmpty {
+            faces = bodies.map { b in
+                let h = min(b.height * 0.22, b.width * 0.40)
+                return CGRect(x: b.midX - h * 0.4, y: b.maxY - h * 1.05, width: h * 0.8, height: h)
             }
-            return nil
-        case .group:
-            let all = faces + bodies
-            guard var u = all.first else { return nil }
-            for r in all.dropFirst() { u = u.union(r) }
-            return u
         }
-    }
+        guard !faces.isEmpty else { return nil }
 
-    private func framing(for subject: CGRect, full: CGRect, aspect: CGFloat, settings: ProcessingSettings) -> CGRect {
-        let loose = 1 - settings.framingTightness
-        var h: CGFloat
-        var centerY: CGFloat
+        let loose = CGFloat(1 - settings.framingTightness)    // 0 = tight, 1 = loose
+        let subject: CGRect                                     // the face(s) to compose around
+        let heightInFaces: CGFloat                              // crop height in face heights
+        let faceLine: CGFloat                                   // face centre, as a fraction of crop height from the bottom
+        let faceH: CGFloat
+
         switch settings.framingSubject {
         case .face:
-            h = subject.height * (2.4 + 3.0 * loose)
-            centerY = subject.midY - h * 0.10          // eyes in the upper third
+            subject = faces.max { area($0) < area($1) }!
+            faceH = subject.height
+            heightInFaces = 1.8 + 1.2 * loose                   // head with a little shoulder
+            faceLine = 0.60
         case .upperBody:
-            h = subject.height * (1.25 + 0.9 * loose)
-            centerY = subject.midY + subject.height * 0.05
+            subject = faces.max { area($0) < area($1) }!
+            faceH = subject.height
+            heightInFaces = 2.9 + 1.4 * loose                   // head, shoulders and chest
+            faceLine = 0.68
         case .group:
-            h = subject.height * (1.35 + 0.8 * loose)
-            centerY = subject.midY
+            subject = faces.dropFirst().reduce(faces[0]) { $0.union($1) }
+            faceH = faces.map(\.height).reduce(0, +) / CGFloat(faces.count)
+            heightInFaces = 2.8 + 1.4 * loose
+            faceLine = 0.64
         }
+
+        var h = subject.height - faceH + faceH * heightInFaces
         var w = h * aspect
-        let minWidth = subject.width * (1.25 + 0.6 * loose)
+        // Leave room at the sides for shoulders / everyone in a group.
+        let minWidth = subject.width + faceH * (2.4 + 1.6 * loose)
         if w < minWidth {
             w = minWidth
             h = w / aspect
@@ -133,10 +203,12 @@ final class AutoFramer {
         let minHeight = full.height / CGFloat(max(1.0, settings.maxZoom))
         h = min(max(h, minHeight), full.height)
         w = h * aspect
-        return clamp(CGRect(x: subject.midX - w / 2, y: centerY - h / 2, width: w, height: h), to: full)
+
+        let rect = CGRect(x: subject.midX - w / 2, y: subject.midY - h * faceLine, width: w, height: h)
+        return clamp(rect, to: full)
     }
 
-    private func isWithinDeadZone(_ a: CGRect, _ b: CGRect) -> Bool {
+    static func isWithinDeadZone(_ a: CGRect, _ b: CGRect) -> Bool {
         let moveTolerance = b.height * 0.07
         let sizeTolerance = b.height * 0.10
         return abs(a.midX - b.midX) < moveTolerance
@@ -144,7 +216,7 @@ final class AutoFramer {
             && abs(a.height - b.height) < sizeTolerance
     }
 
-    private func clamp(_ r: CGRect, to bounds: CGRect) -> CGRect {
+    static func clamp(_ r: CGRect, to bounds: CGRect) -> CGRect {
         var r = r
         r.size.width = min(r.width, bounds.width)
         r.size.height = min(r.height, bounds.height)

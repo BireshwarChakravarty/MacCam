@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build MacCam.app (SwiftPM, universal)
+        run: UNIVERSAL=1 ./scripts/build-app.sh
+
+      - name: Package
+        run: |
+          cd dist
+          ditto -c -k --keepParent MacCam.app MacCam.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacCam-app
+          path: dist/MacCam.zip
+
+      - name: Build Xcode project incl. virtual camera extension (unsigned)
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project MacCam.xcodeproj -scheme MacCam -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          ls build/Build/Products/Release/MacCam.app/Contents/Library/SystemExtensions
+
+      - name: UVC parser checks
+        run: |
+          swiftc Sources/MacCam/UVC/UVCDescriptors.swift Sources/MacCam/UVC/UVCControls.swift Tests/ParserCheck/main.swift -o parsercheck
+          ./parsercheck

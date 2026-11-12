@@ -1,0 +1,62 @@
+# Generates MacCam.xcodeproj with the virtual camera (Core Media I/O system extension).
+#   brew install xcodegen && xcodegen generate && open MacCam.xcodeproj
+# Set DEVELOPMENT_TEAM below (or in Xcode → Signing & Capabilities) to your Apple Developer Team ID.
+name: MacCam
+options:
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    APP_BUNDLE_ID: com.maccam.app
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+targets:
+  MacCam:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/MacCam
+    settings:
+      base:
+        PRODUCT_NAME: MacCam
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/MacCam.entitlements
+    dependencies:
+      - target: MacCamCameraExtension
+        embed: true
+        codeSign: true
+      - sdk: SystemExtensions.framework
+      - sdk: CoreMediaIO.framework
+      - sdk: IOKit.framework
+  MacCamCameraExtension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: CameraExtension
+      - path: Sources/MacCam/Shared/VirtualCameraConfig.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).CameraExtension
+        PRODUCT_NAME: $(APP_BUNDLE_ID).CameraExtension
+        INFOPLIST_FILE: CameraExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: CameraExtension/CameraExtension.entitlements
+        SKIP_INSTALL: YES
+    dependencies:
+      - sdk: CoreMediaIO.framework
+schemes:
+  MacCam:
+    build:
+      targets:
+        MacCam: all
+        MacCamCameraExtension: all
+    run:
+      config: Debug
+    archive:
+      config: Release

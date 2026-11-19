@@ -46,6 +46,9 @@ final class UVCControlStore: ObservableObject {
     private let queue = DispatchQueue(label: "framelight.uvc", qos: .userInitiated)
     private var pendingWrites: [String: Int] = [:]
     private var flushScheduled = false
+    private var flushInFlight = false
+    private var toVerify = Set<String>()
+    private var verifyWork: DispatchWorkItem?
     private var pollTimer: Timer?
 
     /// Remembered per-camera values, re-applied when the camera is reconnected
@@ -181,17 +184,20 @@ final class UVCControlStore: ObservableObject {
     }
 
     private func scheduleFlush() {
-        guard !flushScheduled else { return }
+        guard !flushScheduled, !flushInFlight else { return }
         flushScheduled = true
-        // ~30 writes/s max per control while dragging.
+        // ~30 batches/s at most while dragging.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.033) { [weak self] in
             Task { @MainActor in await self?.flush() }
         }
     }
 
+    /// Sends pending values to the camera. Only one batch is ever in flight: values that arrive meanwhile
+    /// replace each other and go out in the next batch, so a slider drag never builds a USB backlog.
     private func flush() async {
         flushScheduled = false
-        guard let device, !pendingWrites.isEmpty else { return }
+        guard !flushInFlight, let device, !pendingWrites.isEmpty else { return }
+        flushInFlight = true
         // Switch auto modes before manual values so the manual values are accepted.
         let writes = pendingWrites.sorted { a, b in
             let aAuto = UVCCatalog.byID[a.key]?.isAutoSwitch ?? false
@@ -201,38 +207,71 @@ final class UVCControlStore: ObservableObject {
         pendingWrites.removeAll()
         let touchedAuto = writes.contains { UVCCatalog.byID[$0.key]?.isAutoSwitch ?? false }
 
-        let tolerance: [String: Int] = Dictionary(uniqueKeysWithValues: writes.map { ($0.key, max(1, states[$0.key]?.resolution ?? 1)) })
-        let result: (error: String?, verified: Int) = await withCheckedContinuation { cont in
+        let refused: [String] = await withCheckedContinuation { cont in
             queue.async {
                 var problems: [String] = []
-                var verified = 0
                 for (id, value) in writes {
                     guard let def = UVCCatalog.byID[id] else { continue }
-                    do {
-                        try UVCControlStore.write(def, value: value, device: device)
-                        // Read it back: some cameras answer "OK" but ignore the value.
-                        if let unit = UVCControlStore.unitID(for: def, device: device),
-                           let cur = try? device.get(.getCur, unit: unit, selector: def.selector, length: def.length) {
-                            let actual = cur.int(at: def.fieldOffset, size: def.fieldSize, signed: def.signed)
-                            if abs(actual - value) <= (tolerance[id] ?? 1) || def.isAutoSwitch && actual != 0 && value != 0 {
-                                verified += 1
-                            } else {
-                                problems.append("\(def.name): asked for \(value), camera kept \(actual)")
-                            }
-                        }
-                    } catch {
+                    do { try UVCControlStore.write(def, value: value, device: device) } catch {
                         problems.append("\(def.name): the camera refused the change (\(error))")
                     }
                 }
-                cont.resume(returning: (problems.isEmpty ? nil : problems.joined(separator: "\n"), verified))
+                cont.resume(returning: problems)
             }
         }
-        lastError = result.error
-        if result.error == nil, result.verified > 0 { lastVerified = Date() }
+        flushInFlight = false
+        if !refused.isEmpty { lastError = refused.joined(separator: "\n") }
+        for (id, _) in writes { toVerify.insert(id) }
+
+        if !pendingWrites.isEmpty {
+            scheduleFlush()                      // newer values arrived while this batch was on the wire
+        } else {
+            scheduleVerifyAndSave()
+        }
         if touchedAuto {
             // Auto mode changes affect which controls are writable and their live values.
             try? await Task.sleep(nanoseconds: 150_000_000)
             await refresh()
+        }
+    }
+
+    /// Once changes settle: read the written controls back from the camera (some cameras answer "OK" but
+    /// keep their old value) and save. Done once after a drag, not on every slider tick.
+    private func scheduleVerifyAndSave() {
+        verifyWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in await self?.verifyAndSave() }
+        }
+        verifyWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    private func verifyAndSave() async {
+        guard let device, pendingWrites.isEmpty, !flushInFlight else { return }
+        let ids = Array(toVerify)
+        toVerify.removeAll()
+        let wanted: [String: (value: Int, tolerance: Int)] = Dictionary(uniqueKeysWithValues: ids.compactMap { id in
+            states[id].map { (id, ($0.current, max(1, $0.resolution))) }
+        })
+        let problems: [String] = await withCheckedContinuation { cont in
+            queue.async {
+                var problems: [String] = []
+                for (id, want) in wanted {
+                    guard let def = UVCCatalog.byID[id], !def.isAutoSwitch,
+                          let unit = UVCControlStore.unitID(for: def, device: device),
+                          let cur = try? device.get(.getCur, unit: unit, selector: def.selector, length: def.length) else { continue }
+                    let actual = cur.int(at: def.fieldOffset, size: def.fieldSize, signed: def.signed)
+                    if abs(actual - want.value) > want.tolerance {
+                        problems.append("\(def.name): asked for \(want.value), camera kept \(actual)")
+                    }
+                }
+                cont.resume(returning: problems)
+            }
+        }
+        if problems.isEmpty {
+            if !wanted.isEmpty { lastError = nil; lastVerified = Date() }
+        } else {
+            lastError = problems.sorted().joined(separator: "\n")
         }
         persist()
     }

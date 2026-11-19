@@ -34,6 +34,8 @@ final class UVCDevice: @unchecked Sendable {
 
     private let interfaceRef: USBInterfaceRef
     private let lock = NSLock()
+    /// Learned on first use: whether this system only accepts control requests with the interface open.
+    private var needsOpenInterface = false
 
     private init(name: String, vendorID: Int, productID: Int, locationID: UInt32, serialNumber: String?,
                  interfaceNumber: UInt8, topology: UVCTopology, interfaceRef: USBInterfaceRef) {
@@ -148,14 +150,24 @@ final class UVCDevice: @unchecked Sendable {
                 wLength: UInt16(length),
                 pData: raw.baseAddress,
                 wLenDone: 0)
-            result = vtable.ControlRequest(interfaceRef, 0, &req)
+            func viaOpenInterface() -> IOReturn {
+                guard vtable.USBInterfaceOpen(interfaceRef) == kIOReturnSuccess else { return ioReturnNotOpen }
+                req.wLenDone = 0
+                let r = vtable.ControlRequest(interfaceRef, 0, &req)
+                _ = vtable.USBInterfaceClose(interfaceRef)
+                return r
+            }
 
-            // Some macOS versions require the interface to be open for control requests.
-            if result != kIOReturnSuccess, result != ioReturnPipeStalled {
-                if vtable.USBInterfaceOpen(interfaceRef) == kIOReturnSuccess {
-                    req.wLenDone = 0
-                    result = vtable.ControlRequest(interfaceRef, 0, &req)
-                    _ = vtable.USBInterfaceClose(interfaceRef)
+            if needsOpenInterface {
+                // Known from an earlier request: the direct path fails on this system, skip it.
+                result = viaOpenInterface()
+            } else {
+                result = vtable.ControlRequest(interfaceRef, 0, &req)
+                // Some macOS versions require the interface to be open for control requests.
+                if result != kIOReturnSuccess, result != ioReturnPipeStalled {
+                    let retried = viaOpenInterface()
+                    if retried == kIOReturnSuccess { needsOpenInterface = true }
+                    result = retried == ioReturnNotOpen ? result : retried
                 }
             }
             transferred = Int(req.wLenDone)

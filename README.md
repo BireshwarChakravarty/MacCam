@@ -115,7 +115,16 @@ There are two kinds of settings, and they reach other apps differently.
 
 **Camera tab: works everywhere, nothing to set up.** These settings live inside the webcam, so every app sees them. After you change one, the Camera tab reads it back from the camera and confirms "Camera confirmed your settings". If an app like Zoom resets the camera when it opens it, turn on **Presets → Hold Camera Settings**.
 
-**Studio effects** (looks, auto framing, background, name tag) reach other apps through a virtual camera. You have two options.
+**"In the Camera" mode (default): no virtual camera, nothing else to install.** Framelight watches your face and steers the webcam's own controls live, so every app sees the result:
+* **Auto Framing** uses the camera's zoom, pan and tilt, if it offers them over USB.
+* **Auto Light** adjusts the camera's brightness or gain from your face.
+* **Pick White Point** sets the camera's white balance.
+* **Looks** use the camera's colour controls.
+* **Privacy** uses the camera's privacy control.
+
+The Studio tab shows which of these your camera supports. Keep Framelight running in the menu bar during calls.
+
+**"In Framelight" mode** adds the full GPU effects: background blur, imported LUTs, name tag and noise reduction. Other apps receive them only through a virtual camera. You have two options.
 
 1. **With OBS (free, no Apple developer account):**
    1. In Framelight choose **Camera → Open Output Window (for OBS)** (⌘⇧O) and leave the window open. It can sit behind other windows, but don't minimise it.

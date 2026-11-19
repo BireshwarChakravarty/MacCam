@@ -112,6 +112,11 @@ final class FrameProcessor: @unchecked Sendable {
     var onStats: ((FrameStats) -> Void)?
     /// Small previews of every look on the live image, about once a second.
     var onLookThumbnails: (([LookStyle: CGImage]) -> Void)?
+    /// Camera mode: each new face/body detection, for the hardware director (capture queue).
+    var onDetection: ((FramingDetection) -> Void)?
+    /// Camera mode: mean linear RGB of the face's skin, a few times a second (meter queue).
+    var onFaceSample: ((SIMD3<Double>) -> Void)?
+    private var lastReportedDetection = -1.0
     /// A hand gesture was recognised (called on the capture queue).
     var onGesture: ((HandGesture) -> Void)?
 
@@ -159,10 +164,13 @@ final class FrameProcessor: @unchecked Sendable {
         guard let input = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let now = CACurrentMediaTime()
-        let (s, resetFramer): (ProcessingSettings, Bool) = lock.locked {
+        let (user, resetFramer): (ProcessingSettings, Bool) = lock.locked {
             defer { needsFramerReset = false }
             return (_settings, needsFramerReset)
         }
+        // In camera mode the camera does the work; Framelight shows its output untouched.
+        let cameraMode = user.effectsTarget == .camera
+        let s = cameraMode ? user.inCameraPassthrough : user
         if resetFramer { framer.clearTarget() }
         frameCount &+= 1
         let dt = min(0.25, max(0, now - (lastFrameTime ?? now - 1.0 / 30.0)))
@@ -174,10 +182,15 @@ final class FrameProcessor: @unchecked Sendable {
         let aspect = outSize.width / outSize.height
 
         let needsFaces = s.autoFraming || s.autoLight || s.naturalSkin || s.gestureControl
+            || (cameraMode && (user.autoFraming || user.autoLight))
         vision.submit(input, detect: needsFaces, segment: s.backgroundMode != .none && !s.privacy,
                       hands: s.gestureControl)
         let detection = needsFaces ? vision.latestDetection : nil
         if s.gestureControl { handleGestures(detection, now: now) }
+        if cameraMode, let detection, detection.time != lastReportedDetection {
+            lastReportedDetection = detection.time
+            onDetection?(detection)
+        }
 
         // 1. Framing: auto, or a manual/preset shot reached with a smooth glide.
         let crop: CGRect
@@ -205,7 +218,8 @@ final class FrameProcessor: @unchecked Sendable {
         let clean = CIImage(cvPixelBuffer: cleanBuffer)
 
         // 3. Auto light: meter the face, ease toward the correction.
-        updateAutoLight(settings: s, source: input, detection: detection, now: now, dt: dt)
+        // In camera mode the meter still runs on the user's settings, but only to feed the hardware director.
+        updateAutoLight(settings: cameraMode ? user : s, source: input, detection: detection, now: now, dt: dt)
         let (ev, gains): (Double, SIMD3<Double>) = lock.locked { (currentEV, currentGains) }
 
         // 4. Exposure, white balance and local tone, in linear light.
@@ -218,7 +232,7 @@ final class FrameProcessor: @unchecked Sendable {
         }
 
         // 6. Natural grade (look + contrast + saturation), one 3D LUT, then an optional creative LUT.
-        image = applyGrade(image)
+        if !s.grade.isNeutral { image = applyGrade(image) }
         if let name = s.customLUT, s.customLUTIntensity > 0.001, let custom = LUTLibrary.shared.load(name) {
             image = applyCustomLUT(custom, to: image, intensity: s.customLUTIntensity)
         }
@@ -476,6 +490,7 @@ final class FrameProcessor: @unchecked Sendable {
             let y = ColorMath.luminance(rgb.x, rgb.y, rgb.z)
             let ev = isFace ? GradeEngine.exposureCorrection(faceLuminance: y) : GradeEngine.sceneExposureCorrection(meanLuminance: y)
             let gains = isFace ? GradeEngine.skinBalanceGains(faceLinear: rgb.x, rgb.y, rgb.z) : (1.0, 1.0, 1.0)
+            if isFace { onFaceSample?(rgb) }
             lock.locked {
                 if s.autoLight { targetEV = ev }
                 if isFace { targetGains = SIMD3(gains.0, gains.1, gains.2) }
@@ -497,6 +512,16 @@ final class FrameProcessor: @unchecked Sendable {
                              format: .RGBAf, colorSpace: linearSRGB)
         }
         return SIMD3(Double(px[0]), Double(px[1]), Double(px[2]))
+    }
+
+    /// Mean linear RGB around a normalized point of the latest camera image (bottom-left origin).
+    func sample(at point: CGPoint) -> SIMD3<Double>? {
+        guard let buffer = lock.locked({ previousClean }) else { return nil }
+        let image = CIImage(cvPixelBuffer: buffer)
+        let size = image.extent.size
+        let side = max(6, size.height * 0.015)
+        return average(image, in: CGRect(x: point.x * size.width - side / 2, y: point.y * size.height - side / 2,
+                                         width: side, height: side))
     }
 
     /// For "Pick White Point": linear gains that make the clicked spot neutral (same brightness).

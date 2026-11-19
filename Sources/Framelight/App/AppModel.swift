@@ -38,8 +38,12 @@ final class AppModel: ObservableObject {
             guard settings != oldValue else { return }
             processor.settings = settings
             scheduleSave()
+            cameraModeChanged(from: oldValue)
         }
     }
+
+    /// Drives the webcam's own controls in "In the Camera" mode.
+    let director = HardwareDirector()
 
     /// Fast-changing readouts live here so they don't redraw the whole window.
     let live = LiveState()
@@ -80,6 +84,7 @@ final class AppModel: ObservableObject {
         settings.compare = false
         settings.privacy = false
         processor.settings = settings
+        director.model = self
         wirePipeline()
 
         camera.onDevicesChanged = { [weak self] in self?.devicesChanged() }
@@ -112,6 +117,13 @@ final class AppModel: ObservableObject {
         }
         camera.onFPS = { fps in
             DispatchQueue.main.async { if abs(live.fps - fps) > 0.4 { live.fps = fps } }
+        }
+        let director = director
+        processor.onDetection = { detection in
+            DispatchQueue.main.async { director.handle(detection) }
+        }
+        processor.onFaceSample = { rgb in
+            DispatchQueue.main.async { director.handleFace(rgb) }
         }
         processor.onGesture = { [weak self] gesture in
             DispatchQueue.main.async { self?.handleGesture(gesture) }
@@ -250,6 +262,18 @@ final class AppModel: ObservableObject {
         var p = CGPoint(x: point.x, y: 1 - point.y)                  // to Core Image's bottom-left origin
         if settings.mirror { p.x = 1 - p.x }
         if settings.flipVertical { p.y = 1 - p.y }
+        if settings.effectsTarget == .camera {
+            guard director.capabilities.whiteBalance else {
+                flash("This camera doesn't offer manual white balance")
+                return
+            }
+            flash("Adjusting the camera's white balance…")
+            Task {
+                let ok = await director.matchWhitePoint(at: p)
+                flash(ok ? "Camera white balance set. FaceTime and other apps see it too." : "Pick something white or light grey")
+            }
+            return
+        }
         guard let gains = processor.whitePointGains(at: p) else {
             flash("Pick something white or light grey")
             return
@@ -321,8 +345,35 @@ final class AppModel: ObservableObject {
     // MARK: Privacy
 
     func togglePrivacy() {
+        if settings.effectsTarget == .camera {
+            guard director.capabilities.privacy else {
+                flash("This camera has no privacy control. Switch effects to “In Framelight” for privacy blur.")
+                return
+            }
+            settings.privacy.toggle()
+            flash(settings.privacy ? "Camera privacy on in every app" : "Camera live")
+            return
+        }
         settings.privacy.toggle()
         flash(settings.privacy ? "Camera paused for others" : "Camera live")
+    }
+
+    /// Keeps the camera's own controls in step with camera-mode settings.
+    private func cameraModeChanged(from old: ProcessingSettings) {
+        let now = settings
+        if now.effectsTarget == .camera {
+            if old.effectsTarget != .camera || old.look != now.look || old.lookIntensity != now.lookIntensity {
+                if director.capabilities.colour { director.applyLook(now.look, intensity: now.lookIntensity) }
+            }
+            if old.privacy != now.privacy || old.effectsTarget != .camera { _ = director.setPrivacy(now.privacy) }
+            if old.autoFraming && !now.autoFraming { director.stopFraming() }
+            if old.autoLight != now.autoLight { director.resetLight() }
+        } else if old.effectsTarget == .camera {
+            // Leaving camera mode: put the camera's colour controls and privacy back to normal.
+            if director.capabilities.colour { director.applyLook(.natural, intensity: 1) }
+            _ = director.setPrivacy(false)
+            director.stopFraming()
+        }
     }
 
     // MARK: Presets

@@ -150,7 +150,7 @@ struct ContentView: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    StatusChips(live: model.live, autoFraming: model.settings.autoFraming, privacy: model.settings.privacy,
+                    StatusChips(live: model.live, autoFraming: model.settings.autoFraming && model.settings.effectsTarget == .framelight, privacy: model.settings.privacy && model.settings.effectsTarget == .framelight,
                                 virtualCameraLive: model.virtualCameraStatus == .streaming)
                     Spacer()
                     if model.isRecording {

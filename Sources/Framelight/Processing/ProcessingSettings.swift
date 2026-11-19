@@ -36,6 +36,16 @@ enum MeteringMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Where Framelight's effects are applied.
+enum EffectsTarget: String, Codable, CaseIterable, Identifiable {
+    /// Framelight drives the webcam's own controls, so FaceTime and every app see the result.
+    case camera
+    /// Framelight's GPU pipeline: preview, recordings, OBS / virtual camera.
+    case framelight
+    var id: String { rawValue }
+    var title: String { self == .camera ? "In the Camera" : "In Framelight" }
+}
+
 enum OutputAspect: String, Codable, CaseIterable, Identifiable {
     case widescreen = "16:9"
     case classic = "4:3"
@@ -74,6 +84,9 @@ enum OutputResolution: String, Codable, CaseIterable, Identifiable {
 /// Everything the software pipeline does on top of the camera hardware.
 /// Applied to the preview, photos, recordings and the virtual camera.
 struct ProcessingSettings: Codable, Equatable {
+    // Where effects apply (default: in the camera, so they work in FaceTime and every app)
+    var effectsTarget: EffectsTarget = .camera
+
     // Framing ("Center Stage")
     var autoFraming = false
     // Face by default: on a ~77° webcam (Kreo Owl 4K Pro) at desk distance a head-and-shoulders shot is
@@ -177,6 +190,23 @@ struct ProcessingSettings: Codable, Equatable {
             if decode(single) != nil { merged[key] = value }
         }
         return decode(merged)
+    }
+
+    /// In camera mode Framelight shows exactly what the camera outputs (what FaceTime sees):
+    /// every software effect off; the camera's own controls do the work.
+    var inCameraPassthrough: ProcessingSettings {
+        var p = ProcessingSettings()
+        p.effectsTarget = .camera
+        p.outputResolution = outputResolution
+        p.mirror = mirror
+        p.flipVertical = flipVertical
+        p.autoLight = false
+        p.naturalSkin = false
+        p.denoise = 0
+        p.lookIntensity = 0
+        p.backgroundMode = .none
+        p.gestureControl = gestureControl
+        return p
     }
 
     /// Kelvin offset shown in the UI for the warmth slider.

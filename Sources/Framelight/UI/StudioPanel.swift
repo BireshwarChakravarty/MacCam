@@ -6,26 +6,140 @@ struct StudioPanel: View {
 
     var body: some View {
         Form {
-            lookSection
-            lightSection
-            detailSection
-            backgroundSection
-            framingSection
-            overlaySection
-            outputSection
-            virtualCameraSection
+            targetSection
+            if inCamera {
+                cameraModeSections
+            } else {
+                lookSection
+                lightSection
+                detailSection
+                backgroundSection
+                framingSection
+                overlaySection
+                outputSection
+                virtualCameraSection
 
-            Section {
-                HStack {
-                    Button("Reset Studio") { model.resetSoftware() }
-                    Spacer()
-                    Toggle("Compare Before / After", isOn: $model.settings.compare)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
+                Section {
+                    HStack {
+                        Button("Reset Studio") { model.resetSoftware() }
+                        Spacer()
+                        Toggle("Compare Before / After", isOn: $model.settings.compare)
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                    }
                 }
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var inCamera: Bool { model.settings.effectsTarget == .camera }
+
+    // MARK: Where effects apply
+
+    private var targetSection: some View {
+        Section {
+            Picker("Effects", selection: $model.settings.effectsTarget) {
+                ForEach(EffectsTarget.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text(inCamera
+                 ? "Framelight steers your webcam's own controls, so FaceTime, Zoom, Meet and every app see the result directly. Keep Framelight running (it lives in the menu bar). The preview shows exactly what other apps see."
+                 : "Full GPU effects (blur, LUTs, name tag) in Framelight's preview and recordings. Other apps get them only through a virtual camera or OBS.")
+                .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Label("Where Effects Apply", systemImage: "arrow.triangle.branch")
+        }
+    }
+
+    // MARK: Camera mode
+
+    @ViewBuilder private var cameraModeSections: some View {
+        let caps = model.director.capabilities
+        Section {
+            Toggle(isOn: $model.settings.autoFraming) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto Framing")
+                    Text(caps.framing
+                         ? "Steers the camera's own zoom\(caps.pan || caps.tilt ? ", pan and tilt" : "") to keep you framed."
+                         : "This camera doesn't offer zoom or pan control over USB, so it can't frame for other apps. Switch to “In Framelight” for software framing.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!caps.framing)
+            if model.settings.autoFraming && caps.framing {
+                Picker("Follow", selection: $model.settings.framingSubject) {
+                    ForEach(FramingSubject.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                TunedSlider("Tightness", value: $model.settings.framingTightness, in: 0...1, reset: 0.65) { "\(Int(($0 * 100).rounded()))%" }
+                TunedSlider("Motion Speed", value: $model.settings.framingSpeed, in: 0...1, reset: 0.5) { "\(Int(($0 * 100).rounded()))%" }
+            }
+        } header: {
+            Label("Framing", systemImage: "person.crop.rectangle")
+        }
+
+        Section {
+            Toggle(isOn: $model.settings.autoLight) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto Light")
+                    Text(caps.light
+                         ? "Meters your face and adjusts the camera's brightness when you're too dark or too bright."
+                         : "This camera doesn't offer brightness or gain control.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!caps.light)
+            HStack {
+                Button {
+                    model.pickingWhitePoint.toggle()
+                } label: {
+                    Label(model.pickingWhitePoint ? "Click something white in the preview…" : "Pick White Point", systemImage: "eyedropper")
+                }
+                .disabled(!caps.whiteBalance)
+                Spacer()
+            }
+            Text(caps.whiteBalance
+                 ? "Sets the camera's white balance until the spot you click is neutral."
+                 : "This camera doesn't offer manual white balance.")
+                .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Label("Light & Color", systemImage: "sun.max")
+        } footer: {
+            Text("Fine-tune exposure, colour temperature, sharpness and more in the Camera tab. Those are the camera's own settings too.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+
+        Section {
+            Picker("Look", selection: $model.settings.look) {
+                ForEach(LookStyle.allCases) { Text($0.displayName).tag($0) }
+            }
+            TunedSlider("Strength", value: $model.settings.lookIntensity, in: 0...1, reset: 1) { "\(Int(($0 * 100).rounded()))%" }
+        } header: {
+            Label("Look", systemImage: "camera.filters")
+        } footer: {
+            Text(caps.colour
+                 ? "Made with the camera's saturation, contrast, gamma and brightness: simpler than Framelight's GPU looks, but visible in every app."
+                 : "This camera doesn't offer colour controls.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .disabled(!caps.colour)
+
+        Section {
+            Toggle("Privacy (camera's own privacy control)", isOn: Binding(get: { model.settings.privacy }, set: { _ in model.togglePrivacy() }))
+                .disabled(!caps.privacy)
+            Toggle("Gesture Control (✋ framing, ✌️ blur in Framelight mode)", isOn: $model.settings.gestureControl)
+        } header: {
+            Label("Control", systemImage: "hand.raised")
+        }
+
+        Section {
+            Text("Not possible in camera mode: background blur or replacement, name tag, imported LUTs and noise reduction. Those need the image to pass through Framelight, which other apps can only receive through a virtual camera.")
+                .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Label("Framelight-Only Effects", systemImage: "info.circle")
+        }
     }
 
     // MARK: Look

@@ -39,6 +39,8 @@ final class UVCControlStore: ObservableObject {
     @Published private(set) var states: [String: UVCControlState] = [:]
     @Published private(set) var isLoading = false
     @Published private(set) var lastError: String?
+    /// When the camera last confirmed (by reading back) that it holds the values Framelight wrote.
+    @Published private(set) var lastVerified: Date?
 
     let device: UVCDevice?
     private let queue = DispatchQueue(label: "framelight.uvc", qos: .userInitiated)
@@ -199,19 +201,34 @@ final class UVCControlStore: ObservableObject {
         pendingWrites.removeAll()
         let touchedAuto = writes.contains { UVCCatalog.byID[$0.key]?.isAutoSwitch ?? false }
 
-        let error: String? = await withCheckedContinuation { cont in
+        let tolerance: [String: Int] = Dictionary(uniqueKeysWithValues: writes.map { ($0.key, max(1, states[$0.key]?.resolution ?? 1)) })
+        let result: (error: String?, verified: Int) = await withCheckedContinuation { cont in
             queue.async {
-                var lastError: String?
+                var problems: [String] = []
+                var verified = 0
                 for (id, value) in writes {
                     guard let def = UVCCatalog.byID[id] else { continue }
-                    do { try UVCControlStore.write(def, value: value, device: device) } catch {
-                        lastError = "\(def.name): \(error)"
+                    do {
+                        try UVCControlStore.write(def, value: value, device: device)
+                        // Read it back: some cameras answer "OK" but ignore the value.
+                        if let unit = UVCControlStore.unitID(for: def, device: device),
+                           let cur = try? device.get(.getCur, unit: unit, selector: def.selector, length: def.length) {
+                            let actual = cur.int(at: def.fieldOffset, size: def.fieldSize, signed: def.signed)
+                            if abs(actual - value) <= (tolerance[id] ?? 1) || def.isAutoSwitch && actual != 0 && value != 0 {
+                                verified += 1
+                            } else {
+                                problems.append("\(def.name): asked for \(value), camera kept \(actual)")
+                            }
+                        }
+                    } catch {
+                        problems.append("\(def.name): the camera refused the change (\(error))")
                     }
                 }
-                cont.resume(returning: lastError)
+                cont.resume(returning: (problems.isEmpty ? nil : problems.joined(separator: "\n"), verified))
             }
         }
-        lastError = error
+        lastError = result.error
+        if result.error == nil, result.verified > 0 { lastVerified = Date() }
         if touchedAuto {
             // Auto mode changes affect which controls are writable and their live values.
             try? await Task.sleep(nanoseconds: 150_000_000)

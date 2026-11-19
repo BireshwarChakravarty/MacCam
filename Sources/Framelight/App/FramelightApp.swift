@@ -63,12 +63,29 @@ struct FramelightApp: App {
                 }
                 Divider()
                 Button("Reload Camera Controls") { Task { await model.reloadControls() } }
+                OpenOutputWindowButton()
             }
         }
+
+        Window("Framelight Output", id: "output") {
+            OutputWindowView()
+                .environmentObject(model)
+        }
+        .defaultSize(width: 960, height: 540)
+        .windowStyle(.hiddenTitleBar)
 
         MenuBarExtra("Framelight", systemImage: "camera.viewfinder") {
             MenuBarView()
                 .environmentObject(model)
         }
+    }
+}
+
+/// Menu command that needs the openWindow environment action.
+struct OpenOutputWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("Open Output Window (for OBS)") { openWindow(id: "output") }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
     }
 }

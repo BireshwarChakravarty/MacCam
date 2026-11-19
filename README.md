@@ -110,6 +110,20 @@ xcodegen generate && open Framelight.xcodeproj
 3. In Framelight go to **Studio → Virtual Camera → Install Virtual Camera**, then approve it in System Settings → General → Login Items & Extensions → Camera Extensions (or Privacy & Security).
 4. Turn on **Send to Virtual Camera** and choose "Framelight Camera" in your meeting app.
 
+## Using Framelight in FaceTime, Zoom, Meet and Teams
+There are two kinds of settings, and they reach other apps differently.
+
+**Camera tab: works everywhere, nothing to set up.** These settings live inside the webcam, so every app sees them. After you change one, the Camera tab reads it back from the camera and confirms "Camera confirmed your settings". If an app like Zoom resets the camera when it opens it, turn on **Presets → Hold Camera Settings**.
+
+**Studio effects** (looks, auto framing, background, name tag) reach other apps through a virtual camera. You have two options.
+
+1. **With OBS (free, no Apple developer account):**
+   1. In Framelight choose **Camera → Open Output Window (for OBS)** (⌘⇧O) and leave the window open. It can sit behind other windows, but don't minimise it.
+   2. In OBS Studio add **macOS Screen Capture → Window → Framelight Output**, then right-click it → **Transform → Fit to Screen**.
+   3. Click **Start Virtual Camera** in OBS.
+   4. In FaceTime choose **Video → OBS Virtual Camera**, or pick it as the camera in Zoom, Meet or Teams.
+2. **Framelight Camera (needs a paid Apple Developer account):** macOS only loads virtual cameras that are signed by a registered developer and notarized by Apple. Build with the Xcode project (Option C above), or set up signed CI builds. Then **Studio → Install Virtual Camera**, and "Framelight Camera" appears directly in every app.
+
 ## Tips for the Kreo Owl 4K Pro
 * Choose the **3840×2160 MJPEG** format in the toolbar. It gives auto framing the most pixels to crop from.
 * Set **Anti-Flicker to 50 Hz** if you're in India (60 Hz in the Americas).

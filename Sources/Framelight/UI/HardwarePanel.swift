@@ -78,6 +78,11 @@ struct HardwarePanel: View {
                         Label(error, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                             .font(.caption)
+                    } else if let verified = controls.lastVerified {
+                        Label("Camera confirmed your settings \(verified.formatted(date: .omitted, time: .standard)). FaceTime and other apps see them too.",
+                              systemImage: "checkmark.seal")
+                            .foregroundStyle(.green)
+                            .font(.caption)
                     }
                 } footer: {
                     Text("These settings live inside the camera itself, so they also apply in Zoom, Meet, OBS and every other app, even when Framelight's virtual camera isn't used.")

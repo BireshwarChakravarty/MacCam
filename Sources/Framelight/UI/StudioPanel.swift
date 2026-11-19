@@ -320,6 +320,10 @@ struct StudioPanel: View {
 
     private var virtualCameraSection: some View {
         Section {
+            OBSBridgeSteps()
+            Divider()
+            Text("With a paid Apple Developer account, Framelight's own virtual camera can be installed instead (no OBS needed):")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle(isOn: Binding(get: { model.virtualCameraOn && model.virtualCameraStatus != .off },
                                  set: { model.setVirtualCamera($0) })) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -339,7 +343,7 @@ struct StudioPanel: View {
         } header: {
             Label("Virtual Camera", systemImage: "video.badge.waveform")
         } footer: {
-            Text("Pick “\(VirtualCameraConfig.deviceName)” in Zoom, Google Meet, Teams, OBS or FaceTime to use everything above there. Keep Framelight running.")
+            Text("Camera tab settings live in the camera and apply in every app on their own. Studio effects (looks, framing, blur, name tag) reach other apps through OBS Virtual Camera, or Framelight Camera on developer-signed builds. Keep Framelight running.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

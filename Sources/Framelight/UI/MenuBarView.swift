@@ -42,6 +42,10 @@ struct MenuBarView: View {
 
         Divider()
 
+        Button("Open Output Window (for OBS)") {
+            openWindow(id: "output")
+            NSApp.activate(ignoringOtherApps: true)
+        }
         Button("Open Framelight") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
